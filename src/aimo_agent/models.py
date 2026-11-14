@@ -103,6 +103,10 @@ class Offer(BaseModel):
     similarity: float | None = Field(
         None, description="How close a substitute's name is to the requested product, 0-1"
     )
+    unmet_preferences: list[str] = Field(
+        default_factory=list,
+        description="Stated preferences (label, brand, origin) this product does not meet",
+    )
     differences: list[str] = Field(
         default_factory=list, description="How a substitute differs from the requested product"
     )
@@ -124,6 +128,10 @@ class OptionLine(BaseModel):
     order_by: datetime | None = None
     is_substitute: bool = False
     price_delta_pct: float | None = None
+    unmet_preferences: list[str] = Field(
+        default_factory=list,
+        description="Stated preferences (label, brand, origin) this product does not meet",
+    )
     country_of_origin: str | None = None
     labels: list[str] = Field(default_factory=list, description="Certificates and labels")
     delivery_reliability: float | None = Field(
@@ -169,6 +177,9 @@ class Option(BaseModel):
     on_time: bool
     order_by: datetime | None = Field(None, description="Earliest cut-off among the lines")
     has_substitute: bool = False
+    outside_preferences: bool = Field(
+        False, description="Contains a product that does not meet a stated preference"
+    )
     trade_offs: list[str] = Field(default_factory=list)
     policy: PolicyDecision | None = None
     proof: str | None = Field(
@@ -260,6 +271,11 @@ class Mandate(BaseModel):
     allow_substitutes: bool = Field(True, description="May the agent accept a substitute alone")
     substitute_max_price_increase_pct: float = Field(
         10, description="Largest price increase per litre/kg a substitute may carry"
+    )
+    allow_outside_preferences: bool = Field(
+        False,
+        description="May the agent accept, alone, a product outside the buyer's stated "
+        "preferences (label, brand, origin) when nothing that meets them can be delivered",
     )
     allow_partial: bool = Field(False, description="May the agent accept a partial quantity alone")
     allow_late: bool = Field(False, description="May the agent accept late delivery alone")

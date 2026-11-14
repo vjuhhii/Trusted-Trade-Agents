@@ -48,6 +48,16 @@ _TEMPERATURE_LABELS = {
 }
 
 _WORD = re.compile(r"[\w%]+")
+_SMALL_WORDS = {"from", "with", "in", "of", "and", "to", "the", "as"}
+
+
+def readable(code: str) -> str:
+    """A data code as words for people: EU_ORGANIC_FARMING -> EU Organic Farming."""
+    words = code.replace("_", " ").lower().split()
+    return " ".join(
+        word if word in _SMALL_WORDS else word.upper() if len(word) <= 2 else word.capitalize()
+        for word in words
+    )
 
 
 class Product(BaseModel):

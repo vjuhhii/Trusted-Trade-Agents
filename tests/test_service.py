@@ -171,6 +171,61 @@ async def test_another_delivery_day_and_another_agent_have_their_own_budgets(
     assert other_day.options[0].policy.decision == "auto_approve"
 
 
+def organic(**fields: object) -> Need:
+    base: dict[str, object] = {
+        "text": "200 litres of organic lactose-free milk by Monday.",
+        "query": "milk",
+        "free_from": ["lactose"],
+        "labels": ["EU_ORGANIC_FARMING"],
+        "quantity": 200,
+        "unit": "L",
+        "deliver_by": MONDAY,
+    }
+    return Need.model_validate(base | fields)
+
+
+async def test_when_nothing_preferred_fits_alternatives_are_proposed_for_a_human(
+    service: PurchasingService, hotel: AgentIdentity
+) -> None:
+    # The only organic milk (107) arrives after Monday.
+    request = await service.create_request(hotel, organic())
+
+    top = request.options[0]
+    assert (top.lines[0].product_id, top.tier, top.outside_preferences) == ("100", "better", True)
+    assert top.lines[0].unmet_preferences == ["not labelled EU Organic Farming"]
+    assert {r.rule: r.outcome for r in top.policy.rules}["stated_preferences"] == "needs_approval"
+    assert top.policy.decision == "needs_approval"
+
+    offered = {line.product_id for option in request.options for line in option.lines}
+    assert "107" in offered  # the organic one is still there, as a late option
+    assert "106" not in offered  # plain milk: the lactose-free constraint was not relaxed
+    assert request.funnel[-3].label == "Alternatives outside the stated preferences"
+
+
+async def test_a_preferred_product_that_fits_needs_no_alternatives(
+    service: PurchasingService, hotel: AgentIdentity, aimo: FakeAimo
+) -> None:
+    aimo.offer("107", 2.19)  # the organic milk can make Monday after all
+
+    request = await service.create_request(hotel, organic())
+
+    (option,) = request.options
+    assert (option.lines[0].product_id, option.tier, option.outside_preferences) == (
+        "107",
+        "best",
+        False,
+    )
+    assert {r.rule: r.outcome for r in option.policy.rules}["stated_preferences"] == "pass"
+
+
+async def test_the_mandate_can_let_the_agent_accept_alternatives_alone(
+    service: PurchasingService, hotel: AgentIdentity
+) -> None:
+    hotel.mandate.allow_outside_preferences = True
+    request = await service.create_request(hotel, organic())
+    assert request.options[0].policy.decision == "auto_approve"
+
+
 async def test_rejected_order_stays_rejected(
     service: PurchasingService, hotel: AgentIdentity
 ) -> None:

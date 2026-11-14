@@ -137,10 +137,14 @@ def test_live_offers_endpoint(client: TestClient) -> None:
     ]
 
 
-def test_console_page_is_served(client: TestClient) -> None:
-    response = client.get("/")
-    assert response.status_code == 200
-    assert "Trade console" in response.text
+def test_kitchen_view_and_console_are_served(client: TestClient) -> None:
+    kitchen = client.get("/")
+    assert kitchen.status_code == 200
+    assert "Your purchasing assistant" in kitchen.text
+    assert "mandate" not in kitchen.text.split("<script>")[0].lower()  # plain words on the page
+    console = client.get("/console")
+    assert console.status_code == 200
+    assert "Trade console" in console.text
 
 
 def test_scripted_scenario_runs_a_purchase_and_the_console_can_read_it(client: TestClient) -> None:

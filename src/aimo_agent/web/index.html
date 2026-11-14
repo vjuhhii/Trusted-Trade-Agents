@@ -111,7 +111,8 @@
 <header>
   <h1>Trade console</h1>
   <span class="sub">An external purchasing agent, the wholesaler's gateway and the buyer's
-    people, on one screen · <a href="/docs">REST API</a> · MCP at <code>/mcp</code></span>
+    people, on one screen · <a href="/">Kitchen view</a> · <a href="/docs">REST API</a> · MCP at
+    <code>/mcp</code></span>
   <span class="right">
     <span id="chain" class="badge">checking audit log…</span>
     <button class="ghost" id="reset" title="Empty orders, requests and the audit log">Start over</button>
@@ -168,7 +169,9 @@ const momentOf = (iso) => new Date(iso).toLocaleString("en-GB",
   { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 const timeOf = (iso) => new Date(iso).toLocaleTimeString("en-GB",
   { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-const pretty = (code) => code.replace(/_/g, " ").toLowerCase().replace(/^./, (c) => c.toUpperCase());
+const SMALL = new Set(["from", "with", "in", "of", "and", "to", "the", "as"]);
+const pretty = (code) => code.replace(/_/g, " ").toLowerCase().split(" ").map((w) =>
+  SMALL.has(w) ? w : w.length <= 2 ? w.toUpperCase() : w[0].toUpperCase() + w.slice(1)).join(" ");
 
 const STATUS = { confirmed: "Confirmed", pending_approval: "Waiting for approval",
   rejected: "Rejected", denied: "Refused by mandate", expired: "Expired",
@@ -254,7 +257,8 @@ function optionCard(request, option, order, proof) {
   const [verdictClass, verdictText] = VERDICT[option.policy.decision];
   const ordered = order && order.option.id === option.id;
   const lines = view.lines.map((l, i) => `<tr>
-      <td>${esc(l.name)}${l.is_substitute ? ' <span class="badge warn">substitute</span>' : ""}
+      <td>${esc(l.name)}${l.is_substitute ? ' <span class="badge warn">substitute</span>' : ""}${
+        l.unmet_preferences.length ? ' <span class="badge warn">outside preferences</span>' : ""}
         <div class="chips small" style="margin-top:4px">${facts(l)}</div></td>
       <td class="r">${l.units} ${esc(l.sales_unit)}</td>
       <td class="r">${isTampered ? `<span class="struck">${eur(option.lines[i].unit_price)}</span> ` : ""}${eur(l.unit_price)}</td>

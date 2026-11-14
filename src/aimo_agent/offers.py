@@ -182,6 +182,7 @@ def _option(parts: list[tuple[Offer, float]], need: Need) -> Option:
             order_by=offer.order_by,
             is_substitute=offer.is_substitute,
             price_delta_pct=offer.price_delta_pct,
+            unmet_preferences=offer.unmet_preferences,
             country_of_origin=offer.country_of_origin,
             labels=offer.labels,
             delivery_reliability=offer.delivery_reliability,
@@ -194,11 +195,17 @@ def _option(parts: list[tuple[Offer, float]], need: Need) -> Option:
     delivery = max(line.delivery_date for line in lines)
     on_time = delivery <= need.deliver_by
     has_substitute = any(line.is_substitute for line in lines)
+    outside_preferences = any(line.unmet_preferences for line in lines)
 
     trade_offs: list[str] = []
     if len(lines) > 1:
         trade_offs.append(f"Split across {len(lines)} products.")
     for offer, _ in parts:
+        if offer.unmet_preferences:
+            trade_offs.append(
+                f"{offer.name} is outside the stated preferences: "
+                f"{', '.join(offer.unmet_preferences)}."
+            )
         if offer.is_substitute:
             delta = (
                 f" ({offer.price_delta_pct:+.1f}% per {unit})"
@@ -236,7 +243,7 @@ def _option(parts: list[tuple[Offer, float]], need: Need) -> Option:
         tier="good"
         if not (full and on_time)
         else "better"
-        if has_substitute or len(lines) > 1
+        if has_substitute or outside_preferences or len(lines) > 1
         else "best",
         title=title,
         lines=lines,
@@ -250,6 +257,7 @@ def _option(parts: list[tuple[Offer, float]], need: Need) -> Option:
         on_time=on_time,
         order_by=min(cut_offs) if cut_offs else None,
         has_substitute=has_substitute,
+        outside_preferences=outside_preferences,
         trade_offs=trade_offs,
     )
 
@@ -267,7 +275,9 @@ def build_options(offers: list[Offer], need: Need) -> list[Option]:
         # buyer's preference. Similarity is compared in steps of 0.1 so price breaks near-ties.
         unlisted = offer.is_substitute and not offer.listed_substitute
         closeness = -round(offer.similarity or 0.0, 1)
-        return (float(offer.is_substitute), float(unlisted), closeness, *rank(offer))
+        # What meets the stated preferences always comes before what does not.
+        outside = float(bool(offer.unmet_preferences))
+        return (outside, float(offer.is_substitute), float(unlisted), closeness, *rank(offer))
 
     orderable = [o for o in offers if o.orderable]
     on_time = sorted((o for o in orderable if o.on_time), key=order)

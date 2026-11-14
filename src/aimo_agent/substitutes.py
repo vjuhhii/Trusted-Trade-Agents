@@ -1,6 +1,6 @@
 """Allergen-safe substitution: what may replace a product, and how the replacement differs."""
 
-from aimo_agent.catalog import DIETARY, Product
+from aimo_agent.catalog import DIETARY, Product, readable
 
 _ALLERGEN_NAME = {code: name for name, (_, code) in DIETARY.items()}
 # Diets a kitchen relies on: a substitute must keep them.
@@ -52,13 +52,15 @@ def review_substitute(requested: Product, candidate: Product) -> tuple[list[str]
             f"origin {candidate.country_of_origin or 'unknown'} instead of "
             f"{requested.country_of_origin or 'unknown'}"
         )
-    lost_labels = set(requested.labels) - set(candidate.labels)
+    lost_labels = sorted(set(requested.labels) - set(candidate.labels))
     if lost_labels:
-        differences.append(f"without the labels {', '.join(sorted(lost_labels))}")
+        noun = "label" if len(lost_labels) == 1 else "labels"
+        differences.append(f"without the {noun} {', '.join(readable(x) for x in lost_labels)}")
     lost_claims = set(requested.claims) - set(candidate.claims) - _FREE_FROM_CLAIMS
     lost_claims -= set(_DIET_CLAIMS)
     if lost_claims:
-        differences.append(f"without the claims {', '.join(sorted(lost_claims))}")
+        claims = ", ".join(claim.replace("_", " ").lower() for claim in sorted(lost_claims))
+        differences.append(f"not marked as {claims}")
     if undeclared:
         differences.append(f"no free-from declaration for {', '.join(undeclared)}")
     return blocking, differences

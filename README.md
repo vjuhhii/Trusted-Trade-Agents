@@ -21,8 +21,17 @@ uv run python -m aimo_agent.datasets    # challenge datasets -> data/ (87 MB, on
 uv run uvicorn aimo_agent.app:app       # the gateway
 ```
 
-Open the **trade console** at http://127.0.0.1:8000/. It shows the three parties on one screen:
-the buyer's agent, the wholesaler's gateway, and the buyer's people.
+There are two screens, for two audiences.
+
+**The kitchen view, http://127.0.0.1:8000/** — what a cook or a hotel owner sees. They talk to
+their assistant in their own words; this page is the only screen the wholesaler asks of them.
+It is built for a phone and for people who do not live in software: one decision at a time, in
+plain words ("It costs €1,010. On its own it may spend up to €1,000 a day."), two buttons, and
+the assistant's rules as one number and four switches. No "mandate", no "policy", no codes.
+
+**The trade console, http://127.0.0.1:8000/console** — the same data for those who want to see
+how it works. It shows the three parties on one screen: the buyer's agent, the wholesaler's
+gateway, and the buyer's people.
 
 - **Run a purchase** with one click: six ready-made requests, from the challenge's example to a
   split order and a product that is short.
@@ -96,7 +105,8 @@ top option is what an autonomous agent orders. Against the live mock API on 14 N
 |---|---|
 | First answer is what the buyer asked for | **19 of 20** |
 | After one correction by the agent | **20 of 20** |
-| Nothing orderable for the date, reported with reasons | 2 of 22 |
+| Nothing orderable for the date, reported with reasons | 1 of 22 |
+| Preference could not be met: an alternative proposed and held for a human | 1 of 22 |
 
 The first run of this benchmark scored 17 of 20 and found three defects: "butter" answered with
 butter beans, "sugar" with liquid sugar, "filter coffee" with paper filters. The two matching
@@ -117,6 +127,7 @@ whatever the agent does or says.
 | Searching and comparing | Spend above `max_autonomous_spend` for the delivery day | A dietary constraint of the request or mandate is violated |
 | An order within the limit, as asked, on time | A substitute when `allow_substitutes` is off, or dearer than the tolerance | Order total above `hard_max_order_total` |
 | A substitute within the price tolerance | Partial quantity, late delivery, pack-size overshoot beyond tolerance | — |
+| | A product outside the stated preferences (label, brand, origin) | |
 | | A category outside `allowed_categories` | |
 
 Products that cannot be ordered at all never become options: sales block, order cut-off
@@ -146,6 +157,10 @@ school kitchens (400 €, no substitutes, nuts and peanuts forbidden).
   its trade-offs: price change per litre, brand, origin, labels or claims lost.
 - **Allergen-safe substitution.** A substitute is never offered if it adds an allergen or loses
   a dietary property (lactose-free, gluten-free, vegan…) of the requested product.
+- **Preferences that cannot be met.** Labels, brand and origin are preferences, dietary rules
+  are not. When every organic milk is past its cut-off, the gateway does not stop at "nothing
+  to order": it proposes regular milk, marks it "outside preferences", and holds the order for
+  a human. A lactose-free or nut-free constraint is never relaxed this way.
 - **Delivery constraints.** The wholesaler's clock decides whether an order cut-off has passed.
   Late delivery is offered as a compromise, never silently.
 - **Changes between inquiry and order.** Price, stock and cut-off are re-checked when the order
@@ -244,6 +259,7 @@ src/aimo_agent/
   service.py       need -> options -> order -> approval, with audit events
   store.py         SQLite store and hash-chained audit log
   app.py           REST API and the trade console
+  web/kitchen.html the kitchen view: approvals and rules in plain words, for a phone
   web/index.html   the trade console (one page, no build step)
   scenarios.py     ready-made purchases the console runs
   mcp_server.py    MCP tools

@@ -1,17 +1,18 @@
 # Matching precision
 
-Run 2026-11-14 14:21 UTC against the live mock API, delivery by Mon 16 Nov 2026. Produced by `uv run python -m aimo_agent.evaluate --write`.
+Run 2026-11-14 15:19 UTC against the live mock API, delivery by Mon 16 Nov 2026. Produced by `uv run python -m aimo_agent.evaluate --write`.
 
 22 buyer requests, each stated to the gateway exactly as worded. Only the top-ranked option is judged.
 
 - **First answer: 19 of 20** proposed options are what the buyer asked for.
 - **After one correction by the agent: 20 of 20.**
-- 2 requests had nothing orderable for that date; the gateway said so and gave the reasons instead of proposing something else.
+- Nothing orderable for that date, said so with the reasons: 1.
+- Could not be met as preferred, so a product outside the stated preferences was proposed, marked and held for a human: 1.
 
 | Case | Buyer's words | First answer | Top option | One correction |
 |---|---|---|---|---|
 | lactose-free-milk | I need 1,000 litres of lactose-free milk by Monday. | correct | Valio Hyvä suomalainen Arki® Eila® semi skimmed milk drink 1 l lactose free (1010.00 EUR) |  |
-| organic-milk | 200 litres of organic milk for next week's breakfast service. | none | nothing orderable (11 order_window_closed) |  |
+| organic-milk | 200 litres of organic milk for next week's breakfast service. | alternative | nothing as asked; proposed for approval: Valio skimmed milk 1 l ESL |  |
 | oat-drink | 200 litres of oat drink for the breakfast buffet. | correct | Oddlygood® oat drink 1l UHT gluten free (234.00 EUR) |  |
 | whipping-cream | 40 litres of lactose-free whipping cream. | correct | Valio food service whipping cream 1,75 l lactose free (134.09 EUR) |  |
 | butter | 25 kg of butter. | correct | Valio butter 500 g unsalted (165.00 EUR) |  |

@@ -8,8 +8,10 @@ judged, because that is what an autonomous agent orders.
     uv run python -m aimo_agent.evaluate            # print the report
     uv run python -m aimo_agent.evaluate --write    # also save evaluation/results.md
 
-Outcomes: `correct` (the top option is acceptable), `wrong` (it is not) and `none` (nothing
-orderable was proposed, e.g. every matching product is past its order cut-off).
+Outcomes: `correct` (the top option is acceptable), `wrong` (it is not), `none` (nothing
+orderable was proposed, e.g. every matching product is past its order cut-off) and
+`alternative` (nothing that meets the stated preferences can be delivered, so a product without
+them is proposed, marked as such and held for a human).
 
 A wrong first answer gets one more try with the case's `refine`: the single correction an
 agent makes after reading the name of what it was offered ("that is liquid sugar").
@@ -65,9 +67,11 @@ def judge(request: PurchaseRequest, rule: dict[str, Any]) -> tuple[str, str]:
         why = ", ".join(f"{n} {status}" for status, n in reasons.items()) or "no match"
         return "none", f"nothing orderable ({why})"
     top = request.options[0]
+    names = " + ".join(line.name for line in top.lines)
+    if top.outside_preferences:
+        return "alternative", f"nothing as asked; proposed for approval: {names}"
     products = [catalog.get(line.product_id) for line in top.lines]
     ok = all(p is not None and acceptable(p, rule) for p in products)
-    names = " + ".join(line.name for line in top.lines)
     return ("correct" if ok else "wrong"), f"{names} ({top.total:.2f} EUR)"
 
 
@@ -96,7 +100,7 @@ def report(rows: list[dict[str, str]], deliver_by: date) -> str:
     def count(key: str, outcome: str) -> int:
         return sum(row[key] == outcome for row in rows)
 
-    answered = len(rows) - count("first", "none")
+    answered = len(rows) - count("first", "none") - count("first", "alternative")
     lines = [
         "# Matching precision",
         "",
@@ -109,8 +113,9 @@ def report(rows: list[dict[str, str]], deliver_by: date) -> str:
         f"- **First answer: {count('first', 'correct')} of {answered}** proposed options are "
         "what the buyer asked for.",
         f"- **After one correction by the agent: {count('final', 'correct')} of {answered}.**",
-        f"- {count('first', 'none')} requests had nothing orderable for that date; the gateway "
-        "said so and gave the reasons instead of proposing something else.",
+        f"- Nothing orderable for that date, said so with the reasons: {count('first', 'none')}.",
+        "- Could not be met as preferred, so a product outside the stated preferences was "
+        f"proposed, marked and held for a human: {count('first', 'alternative')}.",
         "",
         "| Case | Buyer's words | First answer | Top option | One correction |",
         "|---|---|---|---|---|",

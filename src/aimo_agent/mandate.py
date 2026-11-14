@@ -153,6 +153,20 @@ def evaluate_policy(
             f"{day(need.deliver_by)}.",
         )
 
+    outside = [
+        f"{line.name} ({', '.join(line.unmet_preferences)})"
+        for line in option.lines
+        if line.unmet_preferences
+    ]
+    if outside:
+        add(
+            "stated_preferences",
+            "pass" if mandate.allow_outside_preferences else "needs_approval",
+            f"Outside the buyer's stated preferences: {'; '.join(outside)}.",
+        )
+    elif need.labels or need.brand or need.country_of_origin:
+        add("stated_preferences", "pass", "Every product meets the stated preferences.")
+
     if mandate.allowed_categories is not None:
         outside = sorted(
             {

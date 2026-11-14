@@ -237,6 +237,7 @@ def desk_requests(
 class MandateChange(BaseModel):
     max_autonomous_spend: float | None = Field(None, gt=0)
     allow_substitutes: bool | None = None
+    allow_outside_preferences: bool | None = None
     allow_partial: bool | None = None
     allow_late: bool | None = None
 
@@ -317,7 +318,14 @@ def health() -> dict[str, object]:
 
 
 @app.get("/", include_in_schema=False)
-def approval_desk() -> FileResponse:
+def kitchen() -> FileResponse:
+    """What the buyer's people see: plain words, one decision at a time."""
+    return FileResponse(WEB_DIR / "kitchen.html")
+
+
+@app.get("/console", include_in_schema=False)
+def console() -> FileResponse:
+    """The same data for those who want to see how it works: all three parties, in detail."""
     return FileResponse(WEB_DIR / "index.html")
 
 

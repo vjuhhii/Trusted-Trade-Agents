@@ -222,7 +222,12 @@ async def request_options(
     Tiers: `best` is exactly as asked; `better` is the full quantity on time with a compromise
     (a substitute, or a split across products); `good` is a partial quantity or late delivery.
     Each option carries `policy`: what the mandate will do if you order it. `excluded` lists
-    matching products that cannot be ordered and why. Options are not a reservation."""
+    matching products that cannot be ordered and why. Options are not a reservation.
+
+    `labels`, `brand` and `country_of_origin` are preferences. When nothing that meets them can
+    cover the need in time, products without them are proposed too, marked with
+    `unmet_preferences`; ordering one is held for a human unless the mandate says otherwise.
+    Dietary constraints (`free_from`, `exclude_allergens`) are never relaxed."""
     need = Need(
         text=buyer_words,
         query=query,

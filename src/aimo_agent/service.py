@@ -4,6 +4,7 @@ Every step is written to the audit log with the actor and a plain-language reaso
 """
 
 import asyncio
+import math
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -14,7 +15,14 @@ from typing import NamedTuple
 import httpx
 
 from aimo_agent.aimo_client import AimoClient, ProductAvailability, ProductPrice
-from aimo_agent.catalog import Catalog, Product, SearchFilters, SearchResult, get_catalog
+from aimo_agent.catalog import (
+    Catalog,
+    Product,
+    SearchFilters,
+    SearchResult,
+    get_catalog,
+    readable,
+)
 from aimo_agent.config import settings
 from aimo_agent.mandate import evaluate_policy
 from aimo_agent.models import (
@@ -258,15 +266,34 @@ class PurchasingService:
             else:
                 found.products.append(product)
                 found.differences[product.id] = differences
+        safe = len(found.products) - 1
+        listed = f", {len(found.listed)} of them listed by the wholesaler" if found.listed else ""
         found.notes.append(
-            f"{requested.name} was requested specifically. {len(found.products) - 1} safe "
-            f"substitute(s) were checked as well ({len(found.listed)} listed by the wholesaler)."
+            f"{requested.name} was requested specifically. {safe} safe "
+            f"{'substitute was' if safe == 1 else 'substitutes were'} checked as well{listed}."
         )
         found.funnel = [
             ("The requested product and similar ones", len(pool) + 1),
             ("Safe to offer: no new allergens, same dietary profile", len(found.products)),
         ]
         return found
+
+    @staticmethod
+    def _unmet_preferences(product: Product, need: Need) -> list[str]:
+        """Which of the need's preferences (label, brand, origin) a product does not meet."""
+        unmet = [
+            f"not labelled {readable(label)}"
+            for label in need.labels
+            if label not in product.labels
+        ]
+        if need.brand and need.brand.lower().strip() != (product.brand or "").lower().strip():
+            unmet.append(f"brand {product.brand or 'unknown'}, not {need.brand}")
+        if need.country_of_origin and product.country_of_origin != need.country_of_origin:
+            unmet.append(
+                f"origin {(product.country_of_origin or 'unknown').upper()}, "
+                f"not {need.country_of_origin.upper()}"
+            )
+        return unmet
 
     def _mark_substitutes(self, found: Candidates, offers: list[Offer]) -> None:
         requested = found.requested
@@ -326,6 +353,39 @@ class PurchasingService:
             if found.requested:
                 self._mark_substitutes(found, offers)
 
+        # Nothing that meets the stated preferences can cover the need in time: look at what
+        # can, without them. The dietary constraints stay; a human decides on the result.
+        stated = bool(need.labels or need.brand or need.country_of_origin)
+        covered = any(
+            o.orderable and o.on_time and (o.units_offered or 0) >= (o.units_needed or math.inf)
+            for o in offers
+        )
+        if stated and not found.requested and not covered:
+            relaxed = need.model_copy(
+                update={"labels": [], "brand": None, "country_of_origin": None}
+            )
+            seen = {p.id for p in found.products}
+            extra = [p for p in self._candidates(relaxed).products if p.id not in seen]
+            if extra:
+                live = await self._live([p.id for p in extra], need.deliver_by)
+                now = live.now
+                alternatives = self._offers(
+                    extra,
+                    live,
+                    quantity=need.quantity,
+                    unit=need.unit,
+                    deliver_by=need.deliver_by,
+                )
+                for product, offer in zip(extra, alternatives, strict=True):
+                    offer.unmet_preferences = self._unmet_preferences(product, need)
+                offers += alternatives
+                found.funnel.append(("Alternatives outside the stated preferences", len(extra)))
+                found.notes.append(
+                    "Nothing that meets the stated preferences can cover the full quantity in "
+                    f"time, so {len(extra)} products without them were checked as well. They "
+                    "are marked and need a human's approval."
+                )
+
         options = build_options(offers, need)
         for option in options:
             option.policy = self._policy(agent, need, option)
@@ -335,7 +395,7 @@ class PurchasingService:
         excluded = found.unsafe + [
             Excluded(product_id=o.product_id, name=o.name, status=o.status, reason=o.reason)
             for o in offers
-            if not o.orderable
+            if not o.orderable and not o.unmet_preferences
         ]
 
         on_time = sum(o.orderable and o.on_time for o in offers)

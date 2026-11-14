@@ -98,7 +98,8 @@ SCENARIOS = [
     Scenario(
         id="organic",
         title="Organic milk, too late",
-        shows="Every organic milk is past its order cut-off: nothing is ordered, reasons given.",
+        shows="Every organic milk is past its order cut-off: regular milk is proposed, "
+        "marked as outside the preference, and a human decides.",
         needs=[
             {
                 "text": "200 litres of organic milk for Monday.",
