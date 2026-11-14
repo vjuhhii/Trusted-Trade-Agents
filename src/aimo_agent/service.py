@@ -22,6 +22,7 @@ from aimo_agent.models import (
     Approval,
     AuditEvent,
     Excluded,
+    FunnelStep,
     Need,
     Offer,
     Option,
@@ -73,6 +74,7 @@ class Candidates:
     differences: dict[str, list[str]] = field(default_factory=dict)
     unsafe: list[Excluded] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    funnel: list[tuple[str, int]] = field(default_factory=list)
 
 
 class PurchasingService:
@@ -161,6 +163,7 @@ class PurchasingService:
 
         matches = self.catalog.matches(filters)
         found = Candidates(products=matches)
+        found.funnel.append(("Match the buyer's words and dietary rules", len(matches)))
         if not matches:
             found.notes.append("No product in the catalog matches the request.")
             return found
@@ -170,6 +173,7 @@ class PurchasingService:
             if narrowed and len(narrowed) < len(matches):
                 found.products = narrowed
                 found.notes.append(note)
+                found.funnel.append(("Are the product type that was asked for", len(narrowed)))
         if len(found.products) > MAX_CANDIDATES:
             found.notes.append(
                 f"Checked the {MAX_CANDIDATES} most relevant of {len(found.products)} matching "
@@ -258,6 +262,10 @@ class PurchasingService:
             f"{requested.name} was requested specifically. {len(found.products) - 1} safe "
             f"substitute(s) were checked as well ({len(found.listed)} listed by the wholesaler)."
         )
+        found.funnel = [
+            ("The requested product and similar ones", len(pool) + 1),
+            ("Safe to offer: no new allergens, same dietary profile", len(found.products)),
+        ]
         return found
 
     def _mark_substitutes(self, found: Candidates, offers: list[Offer]) -> None:
@@ -389,6 +397,14 @@ class PurchasingService:
             need=need,
             server_time=now,
             candidates_considered=len(offers),
+            funnel=[
+                FunnelStep(label=label, count=count)
+                for label, count in (
+                    *found.funnel,
+                    ("Can be ordered now and delivered in time", on_time),
+                    ("Options proposed", len(options)),
+                )
+            ],
             notes=found.notes,
             options=options,
             excluded=excluded[:MAX_EXCLUDED_LISTED],

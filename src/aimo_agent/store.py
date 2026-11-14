@@ -94,6 +94,13 @@ class Store:
         row = self._db.execute("SELECT body FROM requests WHERE id = ?", (request_id,)).fetchone()
         return PurchaseRequest.model_validate_json(row[0]) if row else None
 
+    def list_requests(self, limit: int = 30) -> list[PurchaseRequest]:
+        """The latest requests, newest first."""
+        rows = self._db.execute(
+            "SELECT body FROM requests ORDER BY created_at DESC, id DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [PurchaseRequest.model_validate_json(row[0]) for row in rows]
+
     # Orders
 
     def save_order(self, order: Order) -> None:

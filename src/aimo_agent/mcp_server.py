@@ -40,11 +40,15 @@ How to buy:
 
 Rules of the road:
 - Prices are fixed and in EUR without VAT unless a field says otherwise. There is no negotiation.
+- Before ordering, read the product name of the option against the buyer's words. If it is not
+  the product meant (beef-pork mince for "minced beef", liquid sugar for "sugar"), call
+  request_options again with `exclude_terms` or `category`; `notes` lists the categories found.
 - Never weaken a dietary constraint (free_from, exclude_allergens) to get more options.
 - Never split or reshape an order to stay under a limit of the mandate.
 - Options expire: if place_order answers `offer_changed`, call request_options again.
-- Each option carries `proof`, the wholesaler's signature over its terms. Pass it on unchanged
-  when you report an option: the buyer's systems verify it. Do not summarise or re-type it.
+- Each option carries `proof`, the wholesaler's signature over its terms. Say that an offer is
+  signed, but do not print the token unless asked; when asked, give it unchanged. You cannot
+  check the signature yourself: get_signing_keys returns the keys the buyer's systems need.
 - Do not poll price and availability for products you are not about to order.
 """
 
@@ -275,6 +279,19 @@ def get_audit_trail(
     """The human-readable, tamper-evident record of a request or an order: who did what, when
     and why, including every mandate rule that was applied."""
     return get_service().audit_trail(_agent(ctx), request_id=request_id, order_id=order_id)
+
+
+@mcp.tool(title="Read the wholesaler's signing keys", annotations=READS)
+@_reported
+def get_signing_keys(ctx: Context) -> dict[str, Any]:
+    """The public keys (JWK Set, RFC 7517) that verify the `proof` on every option, and the
+    path they are published at. Hand them to the buyer's systems together with a proof: any
+    JWT library can then confirm what the wholesaler stated, without asking the wholesaler."""
+    _agent(ctx)
+    signer = get_service().signer
+    if signer is None:
+        raise ToolError("not_found: this gateway does not sign its offers.")
+    return {"published_at": "/.well-known/jwks.json", **signer.jwks()}
 
 
 if __name__ == "__main__":

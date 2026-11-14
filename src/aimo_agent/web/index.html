@@ -3,103 +3,156 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Approval desk · Aimo Agent Gateway</title>
+<title>Trade console · Aimo Agent Gateway</title>
 <style>
   :root {
-    --bg: #f6f7f9; --panel: #ffffff; --line: #e2e5ea; --text: #16202c; --muted: #5d6b7c;
-    --accent: #0b5cad; --ok: #14773f; --ok-bg: #e4f4ea; --warn: #9a5b00; --warn-bg: #fdf0d5;
-    --bad: #a52222; --bad-bg: #fbe4e4; --idle-bg: #eceff3;
+    --bg: #f4f5f8; --panel: #ffffff; --soft: #f0f2f6; --line: #e1e4ea; --text: #141c27;
+    --muted: #5b6878; --accent: #0b5cad; --accent-bg: #e3eefb;
+    --ok: #12703b; --ok-bg: #e2f3e8; --warn: #8f5500; --warn-bg: #fcefd3;
+    --bad: #a11f1f; --bad-bg: #fbe3e3;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #0f141a; --panel: #18202a; --line: #2a3441; --text: #e6ebf1; --muted: #93a1b3;
-      --accent: #6bb1ff; --ok: #6fd69a; --ok-bg: #143523; --warn: #f1c26b; --warn-bg: #3b2e10;
-      --bad: #ff9a9a; --bad-bg: #401a1a; --idle-bg: #232d39;
+      --bg: #0e1319; --panel: #171e28; --soft: #1e2733; --line: #2b3542; --text: #e7ecf2;
+      --muted: #93a1b3; --accent: #6db3ff; --accent-bg: #16304d;
+      --ok: #6fd69a; --ok-bg: #143523; --warn: #f0c36e; --warn-bg: #3a2d10;
+      --bad: #ff9c9c; --bad-bg: #401a1a;
     }
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
-         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  header { padding: 18px 24px; border-bottom: 1px solid var(--line); background: var(--panel);
-           display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: baseline; }
-  h1 { font-size: 19px; margin: 0; }
-  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
-       margin: 0 0 12px; }
-  header .sub { color: var(--muted); }
-  header a { color: var(--accent); }
-  #chain { margin-left: auto; }
-  main { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 24px;
-         padding: 24px; max-width: 1500px; margin: 0 auto; }
-  @media (max-width: 980px) { main { grid-template-columns: 1fr; } }
+         font: 14.5px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 6px 20px; align-items: center;
+           padding: 14px 22px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  h1 { font-size: 18px; margin: 0; }
+  header .sub { color: var(--muted); font-size: 13.5px; }
+  header a, .link { color: var(--accent); }
+  header .right { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+  main { display: grid; gap: 18px; padding: 18px 22px 40px; max-width: 1760px; margin: 0 auto;
+         grid-template-columns: 310px minmax(0, 1fr) 390px; align-items: start; }
+  @media (max-width: 1180px) { main { grid-template-columns: 1fr; } }
+  .col > h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
+              color: var(--muted); margin: 0 0 4px; display: flex; gap: 8px; align-items: center; }
+  .col > .who { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-          padding: 16px; margin-bottom: 14px; }
-  .card.pending { border-left: 4px solid var(--warn); }
-  .card.selected { outline: 2px solid var(--accent); }
-  .row { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; }
-  .id { font-weight: 650; font-variant-numeric: tabular-nums; }
-  .money { margin-left: auto; font-weight: 650; font-variant-numeric: tabular-nums; }
+          padding: 14px; margin-bottom: 12px; }
+  .card h3 { font-size: 14.5px; margin: 0 0 8px; }
   .muted { color: var(--muted); }
-  .small { font-size: 13px; }
-  .badge { display: inline-block; padding: 1px 9px; border-radius: 99px; font-size: 12.5px;
-           font-weight: 600; white-space: nowrap; background: var(--idle-bg); }
-  .confirmed, .pass, .intact { background: var(--ok-bg); color: var(--ok); }
-  .pending_approval, .needs_approval { background: var(--warn-bg); color: var(--warn); }
-  .rejected, .denied, .expired, .deny, .broken { background: var(--bad-bg); color: var(--bad); }
-  blockquote { margin: 10px 0; padding: 6px 12px; border-left: 3px solid var(--line);
-               color: var(--muted); }
-  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
-  td, th { text-align: left; padding: 5px 8px 5px 0; border-top: 1px solid var(--line);
-           vertical-align: top; }
-  th { color: var(--muted); font-weight: 500; font-size: 12.5px; border-top: 0; }
-  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  ul { margin: 8px 0; padding-left: 18px; }
-  .rules { list-style: none; padding: 0; }
-  .rules li { display: grid; grid-template-columns: 118px 1fr; gap: 10px; padding: 4px 0; }
-  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
-  select, input, button { font: inherit; padding: 7px 10px; border-radius: 7px;
-                          border: 1px solid var(--line); background: var(--panel);
-                          color: var(--text); }
-  input { flex: 1; min-width: 160px; }
+  .small { font-size: 12.5px; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; }
+  .grow { flex: 1; }
+  .num { font-variant-numeric: tabular-nums; }
+  .badge { display: inline-block; padding: 1px 9px; border-radius: 99px; font-size: 12px;
+           font-weight: 600; white-space: nowrap; background: var(--soft); color: var(--muted); }
+  .ok, .confirmed, .pass, .best { background: var(--ok-bg); color: var(--ok); }
+  .warn, .pending_approval, .needs_approval, .good, .expired { background: var(--warn-bg); color: var(--warn); }
+  .bad, .rejected, .denied, .deny, .none { background: var(--bad-bg); color: var(--bad); }
+  .info, .better, .options { background: var(--accent-bg); color: var(--accent); }
+  button, select, input { font: inherit; color: var(--text); background: var(--panel);
+                          border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px; }
   button { cursor: pointer; font-weight: 600; }
-  button.approve { background: var(--ok); border-color: var(--ok); color: #fff; }
-  button.reject { color: var(--bad); border-color: var(--bad); }
-  button.link { border: 0; background: none; color: var(--accent); padding: 0; font-weight: 500; }
-  button:focus-visible, select:focus-visible, input:focus-visible {
+  button:disabled { opacity: .55; cursor: progress; }
+  button:focus-visible, select:focus-visible, input:focus-visible, .pick:focus-visible {
     outline: 2px solid var(--accent); outline-offset: 2px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.approve { background: var(--ok); border-color: var(--ok); color: #fff; }
+  @media (prefers-color-scheme: dark) { button.primary, button.approve { color: #0e1319; } }
+  button.reject { color: var(--bad); border-color: var(--bad); }
+  button.ghost { font-weight: 500; font-size: 12.5px; padding: 3px 9px; }
+  .pick { display: block; width: 100%; text-align: left; font-weight: 400; padding: 9px 11px;
+          margin-bottom: 7px; border-radius: 9px; }
+  .pick b { display: block; font-size: 14px; }
+  .pick.selected { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+  blockquote { margin: 6px 0 10px; padding: 4px 12px; border-left: 3px solid var(--accent);
+               font-size: 15.5px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .funnel { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 2px; }
+  .step { flex: 1 1 120px; background: var(--soft); border-radius: 9px; padding: 9px 11px;
+          position: relative; }
+  .step .n { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .step .l { font-size: 12px; color: var(--muted); line-height: 1.3; }
+  .step:last-child { background: var(--accent-bg); }
+  .option { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-top: 10px; }
+  .option.ordered { border-color: var(--accent); }
+  .option.tampered { border-color: var(--bad); }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; margin: 6px 0; }
+  td, th { text-align: left; padding: 4px 8px 4px 0; border-top: 1px solid var(--line);
+           vertical-align: top; }
+  th { border-top: 0; color: var(--muted); font-weight: 500; font-size: 12px; }
+  td.r, th.r { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .struck { text-decoration: line-through; color: var(--muted); }
+  ul { margin: 6px 0; padding-left: 18px; }
+  .rules { list-style: none; padding: 0; margin: 6px 0 0; }
+  .rules li { display: grid; grid-template-columns: 104px 1fr; gap: 8px; padding: 3px 0;
+              font-size: 13px; }
+  .proof { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px;
+           padding-top: 9px; border-top: 1px dashed var(--line); font-size: 13px; }
+  details summary { cursor: pointer; color: var(--accent); font-size: 12.5px; }
+  .field { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center;
+           padding: 5px 0; border-top: 1px solid var(--line); font-size: 13.5px; }
+  .field:first-of-type { border-top: 0; }
+  .field input[type=number] { width: 104px; text-align: right; }
   .timeline { list-style: none; margin: 0; padding: 0; }
-  .timeline li { display: grid; grid-template-columns: 64px 1fr; gap: 10px; padding: 9px 0;
-                 border-top: 1px solid var(--line); }
+  .timeline li { display: grid; grid-template-columns: 58px 1fr; gap: 8px; padding: 8px 0;
+                 border-top: 1px solid var(--line); font-size: 13px; }
   .timeline li:first-child { border-top: 0; }
-  .time { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
-  .actor { font-size: 12.5px; font-weight: 600; }
-  .actor.agent { color: var(--accent); }
-  .actor.human { color: var(--ok); }
+  .time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .actor { font-weight: 650; font-size: 12px; }
+  .actor.agent { color: var(--accent); } .actor.human { color: var(--ok); }
   .actor.system { color: var(--muted); }
-  .hash { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; color: var(--muted); }
-  .empty { color: var(--muted); padding: 18px 0; }
+  .hash { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--muted); }
+  .empty { color: var(--muted); padding: 10px 0; }
+  .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .actions input { flex: 1; min-width: 120px; }
 </style>
 </head>
 <body>
 <header>
-  <h1>Approval desk</h1>
-  <span class="sub">Orders placed by purchasing agents ·
-    <a href="/docs">REST API</a> · MCP at <code>/mcp</code></span>
-  <span id="chain" class="badge">checking audit log…</span>
+  <h1>Trade console</h1>
+  <span class="sub">An external purchasing agent, the wholesaler's gateway and the buyer's
+    people, on one screen · <a href="/docs">REST API</a> · MCP at <code>/mcp</code></span>
+  <span class="right">
+    <span id="chain" class="badge">checking audit log…</span>
+    <button class="ghost" id="reset" title="Empty orders, requests and the audit log">Start over</button>
+  </span>
 </header>
 <main>
-  <section aria-label="Orders">
-    <h2>Waiting for a decision</h2>
-    <div id="pending"></div>
-    <h2 style="margin-top:26px">Decided</h2>
-    <div id="decided"></div>
-  </section>
-  <section aria-label="Audit trail">
-    <h2 id="audit-title">Audit trail · everything</h2>
+  <section class="col" aria-label="Buyer's agent">
+    <h2><span class="dot" style="background:var(--accent)"></span>Buyer's agent</h2>
+    <p class="who" id="agent-who">An external agent buys for a professional kitchen.</p>
     <div class="card">
-      <div class="row small" style="margin-bottom:6px">
-        <span class="muted" id="audit-scope">Newest first. Select an order to see its story.</span>
-        <button class="link" id="show-all" hidden>Show everything</button>
-      </div>
+      <h3>Run a purchase</h3>
+      <div id="scenarios"></div>
+      <label class="small" style="display:flex;gap:6px;align-items:center;margin:4px 0 8px">
+        <input type="checkbox" id="fresh" checked> Start each run from a clean slate</label>
+      <p class="small muted" style="margin:0">A scripted agent plays the buyer's side here.
+        Claude or any MCP client connects to the same interface. Earlier orders count against
+        the day's budget, so a clean slate keeps each run as described.</p>
+    </div>
+    <div class="card">
+      <h3>Requests</h3>
+      <div id="requests"></div>
+    </div>
+  </section>
+
+  <section class="col" aria-label="Wholesaler's gateway">
+    <h2><span class="dot" style="background:var(--ok)"></span>Wholesaler's gateway</h2>
+    <p class="who">Turns the need into fixed-price options, applies the buyer's mandate, signs
+      what it offers.</p>
+    <div id="request"></div>
+  </section>
+
+  <section class="col" aria-label="Buyer's people">
+    <h2><span class="dot" style="background:var(--warn)"></span>Buyer's people</h2>
+    <p class="who">Set what the agent may decide alone, and sign off the rest.</p>
+    <div class="card" id="mandate"></div>
+    <div class="card">
+      <h3>Waiting for a decision</h3>
+      <div id="approvals"></div>
+    </div>
+    <div class="card">
+      <h3 id="audit-title">Audit trail</h3>
       <ol class="timeline" id="timeline"></ol>
     </div>
   </section>
@@ -108,122 +161,264 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const eur = (n) => n.toLocaleString("en-GB", { style: "currency", currency: "EUR" });
+const eur = (n) => Number(n).toLocaleString("en-GB", { style: "currency", currency: "EUR" });
 const dayOf = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-GB",
   { weekday: "short", day: "numeric", month: "short" });
+const momentOf = (iso) => new Date(iso).toLocaleString("en-GB",
+  { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 const timeOf = (iso) => new Date(iso).toLocaleTimeString("en-GB",
   { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const pretty = (code) => code.replace(/_/g, " ").toLowerCase().replace(/^./, (c) => c.toUpperCase());
+
 const STATUS = { confirmed: "Confirmed", pending_approval: "Waiting for approval",
-  rejected: "Rejected", denied: "Refused by mandate", expired: "Expired" };
+  rejected: "Rejected", denied: "Refused by mandate", expired: "Expired",
+  options: "Options ready", none: "Nothing orderable" };
+const VERDICT = { auto_approve: ["ok", "Agent may order alone"],
+  needs_approval: ["warn", "Needs human approval"], deny: ["bad", "Refused by mandate"] };
 const OUTCOME = { pass: "OK", needs_approval: "Needs approval", deny: "Refused" };
+const TIER = { best: "Best · as asked", better: "Better · with a compromise",
+  good: "Good · partial or late" };
 const UNIT = { L: "L", KG: "kg", SALES_UNIT: "units" };
 
-let selected = null;       // order id whose audit trail is shown
-let lastOrders = "";       // skip re-rendering while the approver is typing
-let lastAudit = "";
+let selected = null;          // request id shown in the middle column
+let keys = [];                // the wholesaler's published signing keys
+let scenarios = [];
+const tampered = new Set();   // "PR-0001/opt-1" whose shown price was altered on the way
+let lastRender = "";
+let busy = false;
 
 async function api(path, options) {
   const response = await fetch(path, options);
+  if (response.status === 204) return null;
   const body = await response.json();
   if (!response.ok) throw new Error(body.detail || response.statusText);
   return body;
 }
 
-function orderCard(order) {
-  const o = order.option;
-  const pending = order.status === "pending_approval";
-  const lines = o.lines.map((l) => `<tr>
-      <td>${esc(l.name)}${l.is_substitute ? ' <span class="badge needs_approval">substitute</span>' : ""}
-        <div class="muted small">code ${esc(l.product_id)}</div></td>
-      <td class="num">${l.units} ${esc(l.sales_unit)}</td>
-      <td class="num">${l.quantity} ${UNIT[o.unit]}</td>
-      <td class="num">${eur(l.unit_price)}</td>
-      <td class="num">${eur(l.total)}</td></tr>`).join("");
-  const rules = order.policy.rules.map((r) => `<li>
-      <span><span class="badge ${r.outcome}">${OUTCOME[r.outcome]}</span></span>
-      <span>${esc(r.message)}</span></li>`).join("");
-  const tradeOffs = o.trade_offs.length
-    ? `<ul class="small">${o.trade_offs.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : "";
-  const approvers = (order.approvers.length ? order.approvers : ["Approver"])
-    .map((a) => `<option>${esc(a)}</option>`).join("");
-  const decision = order.approval
-    ? `<p class="small"><b>${esc(order.approval.approver)}</b>
-        ${order.approval.approved ? "approved" : "rejected"} at ${timeOf(order.approval.decided_at)}
-        ${order.approval.comment ? ` · “${esc(order.approval.comment)}”` : ""}</p>` : "";
-  return `<article class="card ${pending ? "pending" : ""} ${selected === order.id ? "selected" : ""}">
-    <div class="row">
-      <span class="id">${esc(order.id)}</span>
-      <span class="badge ${order.status}">${STATUS[order.status]}</span>
-      <span class="muted small">${esc(order.buyer_name)}</span>
-      <span class="money">${eur(o.total)} <span class="muted small">excl. VAT</span></span>
-    </div>
-    ${order.need_text ? `<blockquote>${esc(order.need_text)}</blockquote>` : ""}
-    <table><thead><tr><th>Product</th><th>Order</th><th>Covers</th><th>Unit price</th><th>Total</th></tr></thead>
-      <tbody>${lines}</tbody></table>
-    <p class="small">Delivery <b>${dayOf(o.delivery_date)}</b> · covers ${o.quantity_covered} of
-      ${o.quantity_requested} ${UNIT[o.unit]} · ${eur(o.total_with_tax)} incl. VAT
-      ${order.agent_note ? `<br>Agent's reason: “${esc(order.agent_note)}”` : ""}</p>
-    ${tradeOffs}
-    <ul class="rules small">${rules}</ul>
-    ${decision}
-    ${pending ? `<div class="actions">
-        <select aria-label="Approver" data-approver="${esc(order.id)}">${approvers}</select>
-        <input aria-label="Comment" placeholder="Comment (optional)" data-comment="${esc(order.id)}">
-        <button class="approve" data-decide="${esc(order.id)}" data-approved="true">Approve</button>
-        <button class="reject" data-decide="${esc(order.id)}" data-approved="false">Reject</button>
-      </div>` : `<p class="small muted">${esc(order.status_reason)}</p>`}
-    <button class="link small" data-trail="${esc(order.id)}">Show the audit trail of ${esc(order.id)}</button>
-  </article>`;
+// Signature check, done here in the browser with the published key: no call to the gateway.
+const fromB64u = (s) => Uint8Array.from(
+  atob(s.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(s.length / 4) * 4, "=")),
+  (c) => c.charCodeAt(0));
+const decode = (part) => JSON.parse(new TextDecoder().decode(fromB64u(part)));
+
+function shown(option, isTampered) {
+  if (!isTampered) return option;
+  const cut = (n) => Math.round(n * 90) / 100;
+  return { ...option, total: cut(option.total),
+    lines: option.lines.map((l) => ({ ...l, unit_price: cut(l.unit_price), total: cut(l.total) })) };
 }
 
-function renderOrders(orders) {
+async function checkProof(option, view) {
+  if (!option.proof) return ["none", "This gateway did not sign the offer."];
+  const [head, payload, signature] = option.proof.split(".");
+  const jwk = keys.find((k) => k.kid === decode(head).kid);
+  if (!jwk) return ["bad", "Signed with a key the wholesaler has not published."];
+  try {
+    const key = await crypto.subtle.importKey("jwk", { kty: jwk.kty, crv: jwk.crv, x: jwk.x },
+      { name: "Ed25519" }, false, ["verify"]);
+    const valid = await crypto.subtle.verify({ name: "Ed25519" }, key, fromB64u(signature),
+      new TextEncoder().encode(head + "." + payload));
+    if (!valid) return ["bad", "The signature does not match the offer."];
+  } catch (error) {
+    return ["none", "This browser cannot check Ed25519 signatures."];
+  }
+  const claims = decode(payload);
+  const terms = (lines) => lines.map((l) => [l.product_id, l.units, l.unit_price].join("|")).join(";");
+  if (terms(view.lines) !== terms(claims.offer.lines) || view.total !== claims.offer.total) {
+    return ["bad", `Shown as ${eur(view.total)}, but the wholesaler signed `
+      + `${eur(claims.offer.total)}. The offer was altered on the way.`];
+  }
+  const origin = [...new Set(claims.offer.lines.map((l) => (l.country_of_origin || "?").toUpperCase()))];
+  const until = momentOf(new Date(claims.exp * 1000).toISOString());
+  if (claims.exp * 1000 < Date.now()) return ["warn", `Signature valid; the offer expired ${until}.`];
+  return ["ok", `Price, quantity, delivery ${dayOf(claims.offer.delivery_date)} and origin `
+    + `${origin.join(", ")} are as the wholesaler signed. Valid until ${until}.`];
+}
+
+function facts(line) {
+  const chips = [];
+  if (line.country_of_origin) chips.push(`Origin ${line.country_of_origin.toUpperCase()}`);
+  if (line.delivery_reliability != null) {
+    chips.push(`Delivered as ordered ${(line.delivery_reliability * 100).toFixed(1)}%`);
+  }
+  if (line.carbon_kg_co2e_per_kg != null) chips.push(`${line.carbon_kg_co2e_per_kg} kg CO₂e/kg`);
+  for (const label of line.labels.slice(0, 3)) chips.push(pretty(label));
+  if (line.labels.length > 3) chips.push(`+${line.labels.length - 3} labels`);
+  return chips.map((c) => `<span class="badge">${esc(c)}</span>`).join(" ");
+}
+
+function optionCard(request, option, order, proof) {
+  const key = `${request.id}/${option.id}`;
+  const isTampered = tampered.has(key);
+  const view = shown(option, isTampered);
+  const [verdictClass, verdictText] = VERDICT[option.policy.decision];
+  const ordered = order && order.option.id === option.id;
+  const lines = view.lines.map((l, i) => `<tr>
+      <td>${esc(l.name)}${l.is_substitute ? ' <span class="badge warn">substitute</span>' : ""}
+        <div class="chips small" style="margin-top:4px">${facts(l)}</div></td>
+      <td class="r">${l.units} ${esc(l.sales_unit)}</td>
+      <td class="r">${isTampered ? `<span class="struck">${eur(option.lines[i].unit_price)}</span> ` : ""}${eur(l.unit_price)}</td>
+      <td class="r">${eur(l.total)}</td></tr>`).join("");
+  const rules = option.policy.rules.map((r) => `<li>
+      <span><span class="badge ${r.outcome}">${OUTCOME[r.outcome]}</span></span>
+      <span>${esc(r.message)}</span></li>`).join("");
+  const tradeOffs = option.trade_offs.length
+    ? `<ul class="small">${option.trade_offs.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : "";
+  const [state, text] = proof;
+  const proofLabel = { ok: "Verified in this browser", bad: "Rejected", warn: "Signature valid",
+    none: "Not verified" }[state];
+  return `<div class="option ${ordered ? "ordered" : ""} ${isTampered ? "tampered" : ""}">
+    <div class="row">
+      <span class="badge ${option.tier}">${TIER[option.tier]}</span>
+      <span class="badge ${verdictClass}">${verdictText}</span>
+      ${ordered ? `<span class="badge info">Ordered · ${esc(order.id)}</span>` : ""}
+      <span class="grow"></span>
+      <b class="num">${eur(view.total)}</b><span class="muted small">excl. VAT</span>
+    </div>
+    <table><thead><tr><th>Product</th><th class="r">Order</th><th class="r">Unit price</th>
+      <th class="r">Total</th></tr></thead><tbody>${lines}</tbody></table>
+    <div class="small">Delivery <b>${dayOf(option.delivery_date)}</b> · covers
+      ${option.quantity_covered} of ${option.quantity_requested} ${UNIT[option.unit]}
+      ${option.order_by ? ` · order by ${momentOf(option.order_by)}` : ""}</div>
+    ${tradeOffs}
+    <details><summary>Why this verdict: the mandate, rule by rule</summary>
+      <ul class="rules">${rules}</ul></details>
+    <div class="proof">
+      <span class="badge ${state}">${proofLabel}</span>
+      <span class="grow small">${esc(text)}</span>
+      <button class="ghost" data-tamper="${esc(key)}">${isTampered ? "Undo the change" : "Alter the price on the way"}</button>
+    </div>
+  </div>`;
+}
+
+function renderRequest(request, order, proofs) {
+  if (!request) {
+    $("request").innerHTML = '<div class="card empty">No request yet. Run a purchase on the left.</div>';
+    return;
+  }
+  const need = request.need;
+  const chips = [];
+  if (need.product_id) chips.push(`product ${need.product_id}`);
+  if (need.query) chips.push(`“${need.query}”`);
+  for (const s of need.free_from) chips.push(`free from ${s}`);
+  for (const s of need.exclude_allergens) chips.push(`no ${s}`);
+  for (const l of need.labels) chips.push(pretty(l));
+  chips.push(`${need.quantity} ${UNIT[need.unit]}`, `by ${dayOf(need.deliver_by)}`);
+  const funnel = request.funnel.map((s) => `<div class="step">
+      <div class="n">${s.count}</div><div class="l">${esc(s.label)}</div></div>`).join("");
+  const notes = request.notes.map((n) => `<p class="small muted" style="margin:6px 0">${esc(n)}</p>`).join("");
+  const options = request.options.map((o, i) => optionCard(request, o, order, proofs[i])).join("");
+  const reasons = {};
+  for (const e of request.excluded) reasons[e.status] = (reasons[e.status] || 0) + 1;
+  const excluded = request.excluded.length ? `<details style="margin-top:12px">
+      <summary>Not offered: ${Object.entries(reasons).map(([k, n]) => `${n} ${pretty(k).toLowerCase()}`).join(", ")}</summary>
+      <table>${request.excluded.slice(0, 8).map((e) => `<tr><td>${esc(e.name)}</td>
+        <td class="muted">${esc(e.reason)}</td></tr>`).join("")}</table></details>` : "";
+  const outcome = order
+    ? `<p style="margin:10px 0 0"><span class="badge ${order.status}">${esc(order.id)} · ${STATUS[order.status]}</span>
+        <span class="small"> ${esc(order.status_reason)}</span></p>`
+    : request.options.length ? "" : `<p style="margin:10px 0 0"><span class="badge none">Nothing was ordered</span>
+        <span class="small"> No matching product can be delivered by the date. The reasons are listed below.</span></p>`;
+  $("request").innerHTML = `<div class="card">
+      <div class="row"><b>${esc(request.id)}</b>
+        <span class="muted small">asked ${timeOf(request.created_at)} · wholesaler's clock ${momentOf(request.server_time)}</span></div>
+      ${need.text ? `<blockquote>${esc(need.text)}</blockquote>` : ""}
+      <div class="chips small">${chips.map((c) => `<span class="badge info">${esc(c)}</span>`).join("")}</div>
+      ${outcome}
+    </div>
+    <div class="card"><h3>From the catalog to the options</h3>
+      <div class="funnel">${funnel}</div>${notes}</div>
+    <div class="card"><h3>Options, best first</h3>
+      ${options || '<p class="empty">No orderable option.</p>'}${excluded}</div>`;
+}
+
+function renderLists(requests, orders, mandates) {
+  const orderOf = (id) => orders.find((o) => o.request_id === id);
+  $("requests").innerHTML = requests.map((r) => {
+    const order = orderOf(r.id);
+    const status = order ? order.status : r.options.length ? "options" : "none";
+    return `<button class="pick ${r.id === selected ? "selected" : ""}" data-select="${esc(r.id)}">
+      <span class="row"><b>${esc(r.id)}</b><span class="badge ${status}">${STATUS[status]}</span></span>
+      <span class="small muted">${esc((r.need.text || r.need.query || "").slice(0, 78))}</span></button>`;
+  }).join("") || '<p class="empty">Nothing yet.</p>';
+
+  $("scenarios").innerHTML = scenarios.map((s) => `<button class="pick" data-run="${esc(s.id)}"
+      ${busy ? "disabled" : ""}><b>${esc(s.title)}</b>
+      <span class="small muted">${esc(s.shows)}</span></button>`).join("");
+
+  const agent = mandates[0];
+  if (agent) {
+    const m = agent.mandate;
+    $("agent-who").textContent = `${agent.agent_name}, buying for ${agent.buyer_name}.`;
+    const toggle = (name, label) => `<label class="field"><span>${label}</span>
+      <input type="checkbox" data-mandate="${name}" ${m[name] ? "checked" : ""}></label>`;
+    $("mandate").innerHTML = `<h3>Mandate: what the agent decides alone</h3>
+      <label class="field"><span>Spend per delivery day, EUR excl. VAT</span>
+        <input type="number" min="1" step="50" id="limit" value="${m.max_autonomous_spend}"></label>
+      ${toggle("allow_substitutes", `Substitutes, up to +${m.substitute_max_price_increase_pct}% in price`)}
+      ${toggle("allow_partial", "Partial quantity")}
+      ${toggle("allow_late", "Delivery after the requested date")}
+      <div class="field"><span class="small muted">Above these limits: ${esc(m.approvers.join(" or "))}.
+        Dietary rules can never be approved away.</span>
+        <button class="primary" id="save-mandate">Save</button></div>`;
+  }
+
   const pending = orders.filter((o) => o.status === "pending_approval");
-  const decided = orders.filter((o) => o.status !== "pending_approval");
-  $("pending").innerHTML = pending.map(orderCard).join("")
-    || '<p class="empty">Nothing is waiting. Agents are working within their mandates.</p>';
-  $("decided").innerHTML = decided.map(orderCard).join("")
-    || '<p class="empty">No orders yet.</p>';
+  $("approvals").innerHTML = pending.map((o) => `<div style="padding:8px 0;border-top:1px solid var(--line)">
+      <div class="row"><b>${esc(o.id)}</b><span class="grow"></span>
+        <b class="num">${eur(o.option.total)}</b></div>
+      <div class="small">${esc(o.option.title)}</div>
+      <div class="small muted" style="margin-top:4px">${esc(o.status_reason)}</div>
+      <div class="actions">
+        <select aria-label="Approver" data-approver="${esc(o.id)}">${(o.approvers.length ? o.approvers : ["Approver"])
+          .map((a) => `<option>${esc(a)}</option>`).join("")}</select>
+        <input aria-label="Comment" placeholder="Comment" data-comment="${esc(o.id)}">
+        <button class="approve" data-decide="${esc(o.id)}" data-approved="true">Approve</button>
+        <button class="reject" data-decide="${esc(o.id)}" data-approved="false">Reject</button>
+      </div></div>`).join("")
+    || '<p class="empty">Nothing is waiting. The agent is within its mandate.</p>';
 }
 
 function renderAudit(events) {
+  $("audit-title").textContent = selected ? `Audit trail · ${selected}` : "Audit trail";
   $("timeline").innerHTML = events.map((e) => {
     const kind = e.actor.split(":")[0];
     const who = kind === "system" ? "Gateway" : e.actor.slice(kind.length + 1);
-    const ref = [e.request_id, e.order_id].filter(Boolean).join(" · ");
     return `<li><span class="time">${timeOf(e.at)}<br>#${e.seq}</span>
-      <span><span class="actor ${kind}">${esc(who)}</span>
-        <span class="muted small"> · ${esc(e.type)} · ${esc(ref)}</span><br>
-        ${esc(e.summary)}<br><span class="hash" title="SHA-256 chained to the previous event">${e.hash.slice(0, 16)}…</span>
-      </span></li>`;
+      <span><span class="actor ${kind}">${esc(who)}</span><br>${esc(e.summary)}<br>
+        <span class="hash" title="SHA-256 chained to the previous event">${e.hash.slice(0, 16)}…</span></span></li>`;
   }).join("") || '<li class="empty">No events yet.</li>';
-  $("audit-title").textContent = selected ? `Audit trail · ${selected}` : "Audit trail · everything";
-  $("audit-scope").textContent = selected
-    ? "From the buyer's request to the final decision, oldest first."
-    : "Newest first. Select an order to see its story.";
-  $("show-all").hidden = !selected;
 }
 
 async function refresh(force = false) {
   try {
+    const [requests, orders, mandates, chain] = await Promise.all([
+      api("/v1/desk/requests"), api("/v1/desk/orders"), api("/v1/desk/mandates"),
+      api("/v1/desk/audit/verify")]);
+    if (!requests.some((r) => r.id === selected)) selected = requests[0]?.id ?? null;
+    const request = requests.find((r) => r.id === selected);
+    const order = orders.find((o) => o.request_id === selected
+      && o.status !== "denied") || orders.find((o) => o.request_id === selected);
+    const events = selected
+      ? await api(`/v1/desk/audit?request_id=${encodeURIComponent(selected)}`)
+      : (await api("/v1/desk/audit?limit=40")).reverse();
+    const proofs = request ? await Promise.all(request.options.map((o) =>
+      checkProof(o, shown(o, tampered.has(`${request.id}/${o.id}`))))) : [];
+
     const typing = ["INPUT", "SELECT"].includes(document.activeElement?.tagName);
-    const orders = await api("/v1/desk/orders");
-    const ordersKey = JSON.stringify(orders) + selected;
-    if ((force || ordersKey !== lastOrders) && (force || !typing)) {
-      lastOrders = ordersKey;
-      renderOrders(orders);
+    const state = JSON.stringify([requests, orders, mandates, events, proofs, selected, busy,
+      [...tampered]]);
+    if (force || (state !== lastRender && !typing)) {
+      lastRender = state;
+      renderLists(requests, orders, mandates);
+      renderRequest(request, order, proofs);
+      renderAudit(events);
     }
-    const events = await api(selected
-      ? `/v1/desk/audit?order_id=${encodeURIComponent(selected)}` : "/v1/desk/audit?limit=60");
-    if (!selected) events.reverse();
-    const auditKey = JSON.stringify(events) + selected;
-    if (auditKey !== lastAudit) { lastAudit = auditKey; renderAudit(events); }
-    const chain = await api("/v1/desk/audit/verify");
-    $("chain").className = "badge " + (chain.intact ? "intact" : "broken");
+    $("chain").className = "badge " + (chain.intact ? "ok" : "bad");
     $("chain").textContent = chain.intact
-      ? `Audit log intact · ${chain.events} events`
-      : `Audit log altered at event #${chain.first_bad_seq}`;
+      ? `Audit log intact · ${chain.events} events` : `Audit log altered at event #${chain.first_bad_seq}`;
   } catch (error) {
-    $("chain").className = "badge broken";
+    $("chain").className = "badge bad";
     $("chain").textContent = "Gateway unreachable";
   }
 }
@@ -231,29 +426,53 @@ async function refresh(force = false) {
 document.addEventListener("click", async (event) => {
   const button = event.target.closest("button");
   if (!button) return;
-  if (button.dataset.trail) { selected = button.dataset.trail; return refresh(true); }
-  if (button.id === "show-all") { selected = null; return refresh(true); }
-  if (button.dataset.decide) {
-    const id = button.dataset.decide;
-    button.disabled = true;
-    try {
-      await api(`/v1/desk/orders/${encodeURIComponent(id)}/decision`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+  const data = button.dataset;
+  try {
+    if (data.select) { selected = data.select; return refresh(true); }
+    if (data.tamper) {
+      tampered.has(data.tamper) ? tampered.delete(data.tamper) : tampered.add(data.tamper);
+      return refresh(true);
+    }
+    if (data.run) {
+      busy = true; refresh(true);
+      const fresh = $("fresh").checked;
+      if (fresh) tampered.clear();
+      const results = await api(
+        `/demo/scenarios/${encodeURIComponent(data.run)}?fresh=${fresh}`, { method: "POST" });
+      selected = results[results.length - 1].request_id;
+    } else if (data.decide) {
+      await api(`/v1/desk/orders/${encodeURIComponent(data.decide)}/decision`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          approver: document.querySelector(`[data-approver="${id}"]`).value,
-          approved: button.dataset.approved === "true",
-          comment: document.querySelector(`[data-comment="${id}"]`).value || null,
-        }),
-      });
-      selected = id;
-    } catch (error) { alert(error.message); }
-    refresh(true);
+          approver: document.querySelector(`[data-approver="${data.decide}"]`).value,
+          approved: data.approved === "true",
+          comment: document.querySelector(`[data-comment="${data.decide}"]`).value || null }) });
+    } else if (button.id === "save-mandate") {
+      const change = { max_autonomous_spend: Number($("limit").value) };
+      for (const box of document.querySelectorAll("[data-mandate]")) change[box.dataset.mandate] = box.checked;
+      const agent = (await api("/v1/desk/mandates"))[0];
+      await api(`/v1/desk/mandates/${encodeURIComponent(agent.agent_id)}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(change) });
+    } else if (button.id === "reset") {
+      if (!confirm("Empty all requests, orders and the audit log?")) return;
+      await api("/demo/reset", { method: "POST" });
+      tampered.clear(); selected = null;
+    } else { return; }
+  } catch (error) {
+    alert(error.message);
   }
+  busy = false;
+  document.activeElement?.blur();
+  refresh(true);
 });
 
-refresh(true);
-setInterval(refresh, 2000);
+(async () => {
+  [scenarios, keys] = await Promise.all([
+    api("/demo/scenarios"),
+    api("/.well-known/jwks.json").then((set) => set.keys).catch(() => [])]);
+  refresh(true);
+  setInterval(refresh, 2000);
+})();
 </script>
 </body>
 </html>

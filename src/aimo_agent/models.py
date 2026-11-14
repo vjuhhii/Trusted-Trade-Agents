@@ -124,6 +124,14 @@ class OptionLine(BaseModel):
     order_by: datetime | None = None
     is_substitute: bool = False
     price_delta_pct: float | None = None
+    country_of_origin: str | None = None
+    labels: list[str] = Field(default_factory=list, description="Certificates and labels")
+    delivery_reliability: float | None = Field(
+        None, description="Historic share of ordered quantity delivered, 0-1"
+    )
+    carbon_kg_co2e_per_kg: float | None = Field(
+        None, description="Average footprint of the product group, kg CO2e per kg"
+    )
 
 
 class RuleResult(BaseModel):
@@ -178,6 +186,11 @@ class Excluded(BaseModel):
     reason: str
 
 
+class FunnelStep(BaseModel):
+    label: str
+    count: int
+
+
 class PurchaseRequest(BaseModel):
     id: str
     created_at: datetime
@@ -186,6 +199,10 @@ class PurchaseRequest(BaseModel):
     need: Need
     server_time: datetime = Field(description="Wholesaler clock used for cut-off checks")
     candidates_considered: int
+    funnel: list[FunnelStep] = Field(
+        default_factory=list,
+        description="How the catalog was narrowed down to the options, step by step",
+    )
     notes: list[str] = Field(default_factory=list)
     options: list[Option]
     excluded: list[Excluded] = Field(

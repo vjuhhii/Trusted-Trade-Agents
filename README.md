@@ -21,7 +21,20 @@ uv run python -m aimo_agent.datasets    # challenge datasets -> data/ (87 MB, on
 uv run uvicorn aimo_agent.app:app       # the gateway
 ```
 
-Open the approval desk at http://127.0.0.1:8000/, then in a second terminal:
+Open the **trade console** at http://127.0.0.1:8000/. It shows the three parties on one screen:
+the buyer's agent, the wholesaler's gateway, and the buyer's people.
+
+- **Run a purchase** with one click: six ready-made requests, from the challenge's example to a
+  split order and a product that is short.
+- **Watch the gateway work:** the funnel from catalog matches to options, each option with its
+  price, delivery date, origin, delivery reliability, carbon footprint and labels, and the
+  mandate's verdict rule by rule.
+- **Check the signature yourself:** every option is verified in your browser against the
+  wholesaler's published key. Press "Alter the price on the way" and watch it get rejected.
+- **Be the human:** change the mandate, approve or reject what the agent may not decide alone,
+  and read the audit trail of each request.
+
+The same purchases from a terminal, through the MCP interface:
 
 ```bash
 uv run python -m aimo_agent.demo_agent                      # the example: 1000 l, needs approval
@@ -230,7 +243,9 @@ src/aimo_agent/
   mandate.py       the guardrail rules
   service.py       need -> options -> order -> approval, with audit events
   store.py         SQLite store and hash-chained audit log
-  app.py           REST API and approval desk
+  app.py           REST API and the trade console
+  web/index.html   the trade console (one page, no build step)
+  scenarios.py     ready-made purchases the console runs
   mcp_server.py    MCP tools
   demo_agent.py    scripted buyer agent (MCP client)
   evaluate.py      matching-precision benchmark

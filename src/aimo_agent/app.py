@@ -15,11 +15,12 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
-from aimo_agent.agents import get_agents
+from aimo_agent.agents import get_agents, update_mandate
 from aimo_agent.catalog import Product, SearchFilters, SearchResult
 from aimo_agent.config import settings
 from aimo_agent.mcp_server import mcp
 from aimo_agent.models import AgentIdentity, AuditEvent, Need, Offer, Order, PurchaseRequest
+from aimo_agent.scenarios import SCENARIOS, Scenario, ScenarioResult, run_scenario
 from aimo_agent.service import PurchasingService, ServiceError, get_service
 
 WEB_DIR = Path(__file__).parent / "web"
@@ -62,6 +63,7 @@ app = FastAPI(
     openapi_tags=[
         {"name": "Agent", "description": "What an external purchasing agent calls."},
         {"name": "Approval desk", "description": "What the buyer's human approver uses."},
+        {"name": "Demo", "description": "Scripted purchases that drive the console."},
     ],
 )
 
@@ -223,6 +225,75 @@ def desk_audit(
 def desk_audit_verify(service: Service) -> ChainStatus:
     intact, events, first_bad_seq = service.store.verify_chain()
     return ChainStatus(intact=intact, events=events, first_bad_seq=first_bad_seq)
+
+
+@app.get("/v1/desk/requests", tags=["Approval desk"], summary="Requests, newest first")
+def desk_requests(
+    service: Service, limit: Annotated[int, Query(ge=1, le=100)] = 30
+) -> list[PurchaseRequest]:
+    return service.store.list_requests(limit)
+
+
+class MandateChange(BaseModel):
+    max_autonomous_spend: float | None = Field(None, gt=0)
+    allow_substitutes: bool | None = None
+    allow_partial: bool | None = None
+    allow_late: bool | None = None
+
+
+@app.get("/v1/desk/mandates", tags=["Approval desk"], summary="Agents and their mandates")
+def desk_mandates() -> list[AgentIdentity]:
+    return list(get_agents().values())
+
+
+@app.patch(
+    "/v1/desk/mandates/{agent_id}", tags=["Approval desk"], summary="Change an agent's mandate"
+)
+def desk_change_mandate(agent_id: str, change: MandateChange, service: Service) -> AgentIdentity:
+    changes = change.model_dump(exclude_none=True)
+    agent = update_mandate(agent_id, changes)
+    if agent is None:
+        raise ServiceError("not_found", f"No agent {agent_id!r}.", 404)
+    listed = ", ".join(f"{name} = {value}" for name, value in changes.items()) or "nothing"
+    service.store.add_event(
+        "human:Buyer administrator",
+        "mandate.changed",
+        f"The mandate of {agent.agent_name} was changed: {listed}.",
+        detail={"agent_id": agent_id, "changes": changes},
+    )
+    return agent
+
+
+# Demo
+
+
+@app.get("/demo/scenarios", tags=["Demo"], summary="Ready-made purchases for the console")
+def demo_scenarios() -> list[Scenario]:
+    return SCENARIOS
+
+
+@app.post("/demo/reset", tags=["Demo"], status_code=204, summary="Empty orders and the audit log")
+def demo_reset(service: Service) -> None:
+    service.store.clear()
+
+
+@app.post("/demo/scenarios/{scenario_id}", tags=["Demo"], summary="Run a scripted agent")
+async def demo_run(
+    scenario_id: str,
+    service: Service,
+    fresh: Annotated[
+        bool,
+        Query(description="Empty the store first, so earlier orders do not use up the budget"),
+    ] = True,
+) -> list[ScenarioResult]:
+    scenario = next((s for s in SCENARIOS if s.id == scenario_id), None)
+    if scenario is None:
+        raise ServiceError("not_found", f"No scenario {scenario_id!r}.", 404)
+    if fresh:
+        service.store.clear()
+    registry = get_agents()
+    agent = registry.get(settings.aimo_agent_token) or next(iter(registry.values()))
+    return await run_scenario(service, agent, scenario, date.today())
 
 
 @app.get(

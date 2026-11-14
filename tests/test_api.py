@@ -1,10 +1,13 @@
+import shutil
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from aimo_agent import agents
 from aimo_agent.app import app
+from aimo_agent.config import settings
 from aimo_agent.models import AgentIdentity
 from aimo_agent.service import PurchasingService, get_service
 
@@ -134,7 +137,65 @@ def test_live_offers_endpoint(client: TestClient) -> None:
     ]
 
 
-def test_approval_desk_page_is_served(client: TestClient) -> None:
+def test_console_page_is_served(client: TestClient) -> None:
     response = client.get("/")
     assert response.status_code == 200
-    assert "Approval desk" in response.text
+    assert "Trade console" in response.text
+
+
+def test_scripted_scenario_runs_a_purchase_and_the_console_can_read_it(client: TestClient) -> None:
+    assert "split" in {s["id"] for s in client.get("/demo/scenarios").json()}
+
+    results = client.post("/demo/scenarios/split").json()
+
+    # Two orders of 500 l: the first within the mandate, the second held as a split.
+    assert [r["status"] for r in results] == ["confirmed", "pending_approval"]
+    newest, oldest = client.get("/v1/desk/requests").json()
+    assert (newest["id"], oldest["id"]) == (results[1]["request_id"], results[0]["request_id"])
+    assert [step["label"] for step in newest["funnel"]] == [
+        "Match the buyer's words and dietary rules",
+        "Are the product type that was asked for",
+        "Can be ordered now and delivered in time",
+        "Options proposed",
+    ]
+    # 7 lactose-free milks by name, 6 of them in the milk category, 4 orderable for Monday.
+    assert [step["count"] for step in newest["funnel"]] == [7, 6, 4, 3]
+    line = newest["options"][0]["lines"][0]
+    assert (line["country_of_origin"], line["labels"]) == ("fi", [])
+    assert client.post("/demo/scenarios/nope").status_code == 404
+
+
+def test_reset_empties_requests_orders_and_the_audit_log(client: TestClient) -> None:
+    client.post("/demo/scenarios/within")
+    assert client.post("/demo/reset").status_code == 204
+    assert client.get("/v1/desk/requests").json() == []
+    assert client.get("/v1/desk/orders").json() == []
+    assert client.get("/v1/desk/audit/verify").json()["events"] == 0
+
+
+def test_mandate_change_is_stored_logged_and_seen_at_once(
+    service: PurchasingService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry = tmp_path / "mandates.json"
+    shutil.copy(settings.aimo_agents_file, registry)
+    monkeypatch.setattr(settings, "aimo_agents_file", registry)
+    app.dependency_overrides[get_service] = lambda: service
+    try:
+        desk = TestClient(app)
+        agent = desk.get("/v1/desk/mandates").json()[0]
+        assert agent["mandate"]["max_autonomous_spend"] == 1000
+
+        changed = desk.patch(
+            f"/v1/desk/mandates/{agent['agent_id']}",
+            json={"max_autonomous_spend": 1200, "allow_late": True},
+        )
+
+        assert changed.json()["mandate"]["max_autonomous_spend"] == 1200
+        assert desk.get("/v1/desk/mandates").json()[0]["mandate"]["allow_late"] is True
+        assert "demo-nordic-hotels-agent" in registry.read_text("utf-8")  # tokens are kept
+        (event,) = desk.get("/v1/desk/audit").json()
+        assert event["type"] == "mandate.changed"
+        assert "max_autonomous_spend = 1200" in event["summary"]
+        assert desk.patch("/v1/desk/mandates/nobody", json={}).status_code == 404
+    finally:
+        app.dependency_overrides.clear()

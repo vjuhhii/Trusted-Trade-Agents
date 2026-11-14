@@ -182,6 +182,10 @@ def _option(parts: list[tuple[Offer, float]], need: Need) -> Option:
             order_by=offer.order_by,
             is_substitute=offer.is_substitute,
             price_delta_pct=offer.price_delta_pct,
+            country_of_origin=offer.country_of_origin,
+            labels=offer.labels,
+            delivery_reliability=offer.delivery_reliability,
+            carbon_kg_co2e_per_kg=offer.carbon_kg_co2e_per_kg,
         )
         for offer, units in parts
     ]
