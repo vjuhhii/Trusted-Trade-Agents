@@ -1,0 +1,254 @@
+"""REST interface for external purchasing agents (OpenAPI 3.1), plus the human approval desk.
+
+Run: uv run uvicorn aimo_agent.app:app --reload
+Docs: http://127.0.0.1:8000/docs   Approval desk: http://127.0.0.1:8000/
+"""
+
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from datetime import date
+from pathlib import Path
+from typing import Annotated, Any, Literal
+
+from fastapi import Depends, FastAPI, Query, Request
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel, Field
+
+from aimo_agent.agents import get_agents
+from aimo_agent.catalog import Product, SearchFilters, SearchResult
+from aimo_agent.config import settings
+from aimo_agent.mcp_server import mcp
+from aimo_agent.models import AgentIdentity, AuditEvent, Need, Offer, Order, PurchaseRequest
+from aimo_agent.service import PurchasingService, ServiceError, get_service
+
+WEB_DIR = Path(__file__).parent / "web"
+
+DESCRIPTION = """
+An open interface through which an external purchasing agent works with a food-service
+wholesaler: look up products, get fixed-price offers, place an order, and have a human approve
+whatever exceeds the agent's mandate.
+
+**The flow**
+
+1. `GET /v1/mandate`: what this agent may decide on its own.
+2. `GET /v1/products`: search the static catalog (no rate-limited calls behind it).
+3. `POST /v1/requests`: state a need; the answer is a ranked list of orderable options, each
+   with the mandate's verdict (`auto_approve`, `needs_approval` or `deny`).
+4. `POST /v1/orders`: commit to one option. The order is `confirmed`, or held as
+   `pending_approval` until a human decides at the approval desk.
+5. `GET /v1/orders/{id}/audit`: the human-readable record of what happened and why.
+
+The same operations are available as MCP tools at `/mcp` (Streamable HTTP).
+
+Errors follow RFC 9457 (`application/problem+json`). Agent endpoints need
+`Authorization: Bearer <agent token>`. The approval desk is unauthenticated in this prototype;
+in production it sits behind the buyer's own sign-in.
+"""
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    get_service()  # load the catalog before the first request
+    async with mcp.session_manager.run():
+        yield
+
+
+app = FastAPI(
+    title="Aimo Agent Gateway",
+    version="0.1.0",
+    description=DESCRIPTION,
+    lifespan=lifespan,
+    openapi_tags=[
+        {"name": "Agent", "description": "What an external purchasing agent calls."},
+        {"name": "Approval desk", "description": "What the buyer's human approver uses."},
+    ],
+)
+
+bearer = HTTPBearer(auto_error=False, description="Token the wholesaler issued to this agent")
+Service = Annotated[PurchasingService, Depends(get_service)]
+
+
+def current_agent(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
+) -> AgentIdentity:
+    agent = get_agents().get(credentials.credentials) if credentials else None
+    if agent is None:
+        raise ServiceError("unauthorized", "Missing or unknown agent token.", 401)
+    return agent
+
+
+Agent = Annotated[AgentIdentity, Depends(current_agent)]
+
+
+@app.exception_handler(ServiceError)
+async def problem_details(_: Request, error: ServiceError) -> JSONResponse:
+    return JSONResponse(
+        status_code=error.http_status,
+        media_type="application/problem+json",
+        content={
+            "type": f"urn:aimo-agent-gateway:error:{error.code}",
+            "title": error.code.replace("_", " ").capitalize(),
+            "status": error.http_status,
+            "detail": error.message,
+        },
+    )
+
+
+class OfferQuery(BaseModel):
+    product_ids: list[str] = Field(min_length=1, max_length=60)
+    quantity: float = Field(gt=0)
+    unit: str = Field("SALES_UNIT", description="L, KG or SALES_UNIT")
+    deliver_by: date
+
+
+class OrderRequest(BaseModel):
+    request_id: str
+    option_id: str
+    note: str | None = Field(
+        None, description="Why the agent chose this option. Kept in the audit trail"
+    )
+
+
+class ApprovalDecision(BaseModel):
+    approver: str = Field(min_length=1)
+    approved: bool
+    comment: str | None = None
+
+
+class ChainStatus(BaseModel):
+    intact: bool
+    events: int
+    first_bad_seq: int | None
+
+
+# Agent
+
+
+@app.get("/v1/mandate", tags=["Agent"], summary="Who the agent acts for and what it may decide")
+def read_mandate(agent: Agent) -> AgentIdentity:
+    return agent
+
+
+@app.get("/v1/products", tags=["Agent"], summary="Search the catalog")
+def search_products(
+    service: Service,
+    _: Agent,
+    filters: Annotated[SearchFilters, Query()],
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+) -> SearchResult:
+    return service.search(filters, limit)
+
+
+@app.get("/v1/products/{product_id}", tags=["Agent"], summary="One product")
+def read_product(product_id: str, service: Service, _: Agent) -> Product:
+    return service.product(product_id)
+
+
+@app.post("/v1/offers", tags=["Agent"], summary="Live price and availability for chosen products")
+async def check_offers(query: OfferQuery, service: Service, _: Agent) -> list[Offer]:
+    return await service.check_offers(
+        query.product_ids, quantity=query.quantity, unit=query.unit, deliver_by=query.deliver_by
+    )
+
+
+@app.post(
+    "/v1/requests", tags=["Agent"], status_code=201, summary="State a need, get ranked options"
+)
+async def create_request(need: Need, service: Service, agent: Agent) -> PurchaseRequest:
+    return await service.create_request(agent, need)
+
+
+@app.get("/v1/requests/{request_id}", tags=["Agent"], summary="A request and its options")
+def read_request(request_id: str, service: Service, agent: Agent) -> PurchaseRequest:
+    return service.get_request(agent, request_id)
+
+
+@app.get("/v1/requests/{request_id}/audit", tags=["Agent"], summary="Audit trail of a request")
+def read_request_audit(request_id: str, service: Service, agent: Agent) -> list[AuditEvent]:
+    return service.audit_trail(agent, request_id=request_id)
+
+
+@app.post("/v1/orders", tags=["Agent"], status_code=201, summary="Commit to one option")
+async def place_order(body: OrderRequest, service: Service, agent: Agent) -> Order:
+    return await service.place_order(agent, body.request_id, body.option_id, body.note)
+
+
+@app.get("/v1/orders/{order_id}", tags=["Agent"], summary="Order status")
+def read_order(order_id: str, service: Service, agent: Agent) -> Order:
+    return service.get_order(agent, order_id)
+
+
+@app.get("/v1/orders/{order_id}/audit", tags=["Agent"], summary="Audit trail of an order")
+def read_order_audit(order_id: str, service: Service, agent: Agent) -> list[AuditEvent]:
+    return service.audit_trail(agent, order_id=order_id)
+
+
+# Approval desk
+
+
+@app.get("/v1/desk/orders", tags=["Approval desk"], summary="Orders, newest first")
+def desk_orders(
+    service: Service,
+    status: Literal["confirmed", "pending_approval", "rejected", "denied", "expired"] | None = None,
+) -> list[Order]:
+    return service.store.list_orders(status=status)
+
+
+@app.post(
+    "/v1/desk/orders/{order_id}/decision", tags=["Approval desk"], summary="Approve or reject"
+)
+async def desk_decide(order_id: str, decision: ApprovalDecision, service: Service) -> Order:
+    return await service.decide(
+        order_id,
+        approver=decision.approver,
+        approved=decision.approved,
+        comment=decision.comment,
+    )
+
+
+@app.get("/v1/desk/audit", tags=["Approval desk"], summary="The audit log")
+def desk_audit(
+    service: Service,
+    request_id: str | None = None,
+    order_id: str | None = None,
+    limit: Annotated[int, Query(ge=1, le=1000)] = 200,
+) -> list[AuditEvent]:
+    return service.store.events(request_id=request_id, order_id=order_id, limit=limit)
+
+
+@app.get(
+    "/v1/desk/audit/verify", tags=["Approval desk"], summary="Check the audit log's hash chain"
+)
+def desk_audit_verify(service: Service) -> ChainStatus:
+    intact, events, first_bad_seq = service.store.verify_chain()
+    return ChainStatus(intact=intact, events=events, first_bad_seq=first_bad_seq)
+
+
+@app.get(
+    "/.well-known/jwks.json",
+    tags=["Agent"],
+    summary="Public keys for verifying signed offers (JWK Set, RFC 7517)",
+)
+def signing_keys(service: Service) -> dict[str, Any]:
+    if service.signer is None:
+        raise ServiceError("not_found", "This gateway does not sign its offers.", 404)
+    return service.signer.jwks()
+
+
+@app.get("/health", include_in_schema=False)
+def health() -> dict[str, object]:
+    return {
+        "status": "ok",
+        "aimo_api_base_url_set": bool(settings.aimo_api_base_url),
+        "aimo_api_key_set": bool(settings.aimo_api_key),
+    }
+
+
+@app.get("/", include_in_schema=False)
+def approval_desk() -> FileResponse:
+    return FileResponse(WEB_DIR / "index.html")
+
+
+# MCP over Streamable HTTP at /mcp. Mounted last so the routes above take precedence.
+app.mount("/", mcp.streamable_http_app())

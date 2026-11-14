@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Approval desk · Aimo Agent Gateway</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --line: #e2e5ea; --text: #16202c; --muted: #5d6b7c;
+    --accent: #0b5cad; --ok: #14773f; --ok-bg: #e4f4ea; --warn: #9a5b00; --warn-bg: #fdf0d5;
+    --bad: #a52222; --bad-bg: #fbe4e4; --idle-bg: #eceff3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f141a; --panel: #18202a; --line: #2a3441; --text: #e6ebf1; --muted: #93a1b3;
+      --accent: #6bb1ff; --ok: #6fd69a; --ok-bg: #143523; --warn: #f1c26b; --warn-bg: #3b2e10;
+      --bad: #ff9a9a; --bad-bg: #401a1a; --idle-bg: #232d39;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { padding: 18px 24px; border-bottom: 1px solid var(--line); background: var(--panel);
+           display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: baseline; }
+  h1 { font-size: 19px; margin: 0; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+       margin: 0 0 12px; }
+  header .sub { color: var(--muted); }
+  header a { color: var(--accent); }
+  #chain { margin-left: auto; }
+  main { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 24px;
+         padding: 24px; max-width: 1500px; margin: 0 auto; }
+  @media (max-width: 980px) { main { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+          padding: 16px; margin-bottom: 14px; }
+  .card.pending { border-left: 4px solid var(--warn); }
+  .card.selected { outline: 2px solid var(--accent); }
+  .row { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; }
+  .id { font-weight: 650; font-variant-numeric: tabular-nums; }
+  .money { margin-left: auto; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .muted { color: var(--muted); }
+  .small { font-size: 13px; }
+  .badge { display: inline-block; padding: 1px 9px; border-radius: 99px; font-size: 12.5px;
+           font-weight: 600; white-space: nowrap; background: var(--idle-bg); }
+  .confirmed, .pass, .intact { background: var(--ok-bg); color: var(--ok); }
+  .pending_approval, .needs_approval { background: var(--warn-bg); color: var(--warn); }
+  .rejected, .denied, .expired, .deny, .broken { background: var(--bad-bg); color: var(--bad); }
+  blockquote { margin: 10px 0; padding: 6px 12px; border-left: 3px solid var(--line);
+               color: var(--muted); }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  td, th { text-align: left; padding: 5px 8px 5px 0; border-top: 1px solid var(--line);
+           vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12.5px; border-top: 0; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  ul { margin: 8px 0; padding-left: 18px; }
+  .rules { list-style: none; padding: 0; }
+  .rules li { display: grid; grid-template-columns: 118px 1fr; gap: 10px; padding: 4px 0; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
+  select, input, button { font: inherit; padding: 7px 10px; border-radius: 7px;
+                          border: 1px solid var(--line); background: var(--panel);
+                          color: var(--text); }
+  input { flex: 1; min-width: 160px; }
+  button { cursor: pointer; font-weight: 600; }
+  button.approve { background: var(--ok); border-color: var(--ok); color: #fff; }
+  button.reject { color: var(--bad); border-color: var(--bad); }
+  button.link { border: 0; background: none; color: var(--accent); padding: 0; font-weight: 500; }
+  button:focus-visible, select:focus-visible, input:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px; }
+  .timeline { list-style: none; margin: 0; padding: 0; }
+  .timeline li { display: grid; grid-template-columns: 64px 1fr; gap: 10px; padding: 9px 0;
+                 border-top: 1px solid var(--line); }
+  .timeline li:first-child { border-top: 0; }
+  .time { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  .actor { font-size: 12.5px; font-weight: 600; }
+  .actor.agent { color: var(--accent); }
+  .actor.human { color: var(--ok); }
+  .actor.system { color: var(--muted); }
+  .hash { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; color: var(--muted); }
+  .empty { color: var(--muted); padding: 18px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Approval desk</h1>
+  <span class="sub">Orders placed by purchasing agents ·
+    <a href="/docs">REST API</a> · MCP at <code>/mcp</code></span>
+  <span id="chain" class="badge">checking audit log…</span>
+</header>
+<main>
+  <section aria-label="Orders">
+    <h2>Waiting for a decision</h2>
+    <div id="pending"></div>
+    <h2 style="margin-top:26px">Decided</h2>
+    <div id="decided"></div>
+  </section>
+  <section aria-label="Audit trail">
+    <h2 id="audit-title">Audit trail · everything</h2>
+    <div class="card">
+      <div class="row small" style="margin-bottom:6px">
+        <span class="muted" id="audit-scope">Newest first. Select an order to see its story.</span>
+        <button class="link" id="show-all" hidden>Show everything</button>
+      </div>
+      <ol class="timeline" id="timeline"></ol>
+    </div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const eur = (n) => n.toLocaleString("en-GB", { style: "currency", currency: "EUR" });
+const dayOf = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-GB",
+  { weekday: "short", day: "numeric", month: "short" });
+const timeOf = (iso) => new Date(iso).toLocaleTimeString("en-GB",
+  { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const STATUS = { confirmed: "Confirmed", pending_approval: "Waiting for approval",
+  rejected: "Rejected", denied: "Refused by mandate", expired: "Expired" };
+const OUTCOME = { pass: "OK", needs_approval: "Needs approval", deny: "Refused" };
+const UNIT = { L: "L", KG: "kg", SALES_UNIT: "units" };
+
+let selected = null;       // order id whose audit trail is shown
+let lastOrders = "";       // skip re-rendering while the approver is typing
+let lastAudit = "";
+
+async function api(path, options) {
+  const response = await fetch(path, options);
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.detail || response.statusText);
+  return body;
+}
+
+function orderCard(order) {
+  const o = order.option;
+  const pending = order.status === "pending_approval";
+  const lines = o.lines.map((l) => `<tr>
+      <td>${esc(l.name)}${l.is_substitute ? ' <span class="badge needs_approval">substitute</span>' : ""}
+        <div class="muted small">code ${esc(l.product_id)}</div></td>
+      <td class="num">${l.units} ${esc(l.sales_unit)}</td>
+      <td class="num">${l.quantity} ${UNIT[o.unit]}</td>
+      <td class="num">${eur(l.unit_price)}</td>
+      <td class="num">${eur(l.total)}</td></tr>`).join("");
+  const rules = order.policy.rules.map((r) => `<li>
+      <span><span class="badge ${r.outcome}">${OUTCOME[r.outcome]}</span></span>
+      <span>${esc(r.message)}</span></li>`).join("");
+  const tradeOffs = o.trade_offs.length
+    ? `<ul class="small">${o.trade_offs.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : "";
+  const approvers = (order.approvers.length ? order.approvers : ["Approver"])
+    .map((a) => `<option>${esc(a)}</option>`).join("");
+  const decision = order.approval
+    ? `<p class="small"><b>${esc(order.approval.approver)}</b>
+        ${order.approval.approved ? "approved" : "rejected"} at ${timeOf(order.approval.decided_at)}
+        ${order.approval.comment ? ` · “${esc(order.approval.comment)}”` : ""}</p>` : "";
+  return `<article class="card ${pending ? "pending" : ""} ${selected === order.id ? "selected" : ""}">
+    <div class="row">
+      <span class="id">${esc(order.id)}</span>
+      <span class="badge ${order.status}">${STATUS[order.status]}</span>
+      <span class="muted small">${esc(order.buyer_name)}</span>
+      <span class="money">${eur(o.total)} <span class="muted small">excl. VAT</span></span>
+    </div>
+    ${order.need_text ? `<blockquote>${esc(order.need_text)}</blockquote>` : ""}
+    <table><thead><tr><th>Product</th><th>Order</th><th>Covers</th><th>Unit price</th><th>Total</th></tr></thead>
+      <tbody>${lines}</tbody></table>
+    <p class="small">Delivery <b>${dayOf(o.delivery_date)}</b> · covers ${o.quantity_covered} of
+      ${o.quantity_requested} ${UNIT[o.unit]} · ${eur(o.total_with_tax)} incl. VAT
+      ${order.agent_note ? `<br>Agent's reason: “${esc(order.agent_note)}”` : ""}</p>
+    ${tradeOffs}
+    <ul class="rules small">${rules}</ul>
+    ${decision}
+    ${pending ? `<div class="actions">
+        <select aria-label="Approver" data-approver="${esc(order.id)}">${approvers}</select>
+        <input aria-label="Comment" placeholder="Comment (optional)" data-comment="${esc(order.id)}">
+        <button class="approve" data-decide="${esc(order.id)}" data-approved="true">Approve</button>
+        <button class="reject" data-decide="${esc(order.id)}" data-approved="false">Reject</button>
+      </div>` : `<p class="small muted">${esc(order.status_reason)}</p>`}
+    <button class="link small" data-trail="${esc(order.id)}">Show the audit trail of ${esc(order.id)}</button>
+  </article>`;
+}
+
+function renderOrders(orders) {
+  const pending = orders.filter((o) => o.status === "pending_approval");
+  const decided = orders.filter((o) => o.status !== "pending_approval");
+  $("pending").innerHTML = pending.map(orderCard).join("")
+    || '<p class="empty">Nothing is waiting. Agents are working within their mandates.</p>';
+  $("decided").innerHTML = decided.map(orderCard).join("")
+    || '<p class="empty">No orders yet.</p>';
+}
+
+function renderAudit(events) {
+  $("timeline").innerHTML = events.map((e) => {
+    const kind = e.actor.split(":")[0];
+    const who = kind === "system" ? "Gateway" : e.actor.slice(kind.length + 1);
+    const ref = [e.request_id, e.order_id].filter(Boolean).join(" · ");
+    return `<li><span class="time">${timeOf(e.at)}<br>#${e.seq}</span>
+      <span><span class="actor ${kind}">${esc(who)}</span>
+        <span class="muted small"> · ${esc(e.type)} · ${esc(ref)}</span><br>
+        ${esc(e.summary)}<br><span class="hash" title="SHA-256 chained to the previous event">${e.hash.slice(0, 16)}…</span>
+      </span></li>`;
+  }).join("") || '<li class="empty">No events yet.</li>';
+  $("audit-title").textContent = selected ? `Audit trail · ${selected}` : "Audit trail · everything";
+  $("audit-scope").textContent = selected
+    ? "From the buyer's request to the final decision, oldest first."
+    : "Newest first. Select an order to see its story.";
+  $("show-all").hidden = !selected;
+}
+
+async function refresh(force = false) {
+  try {
+    const typing = ["INPUT", "SELECT"].includes(document.activeElement?.tagName);
+    const orders = await api("/v1/desk/orders");
+    const ordersKey = JSON.stringify(orders) + selected;
+    if ((force || ordersKey !== lastOrders) && (force || !typing)) {
+      lastOrders = ordersKey;
+      renderOrders(orders);
+    }
+    const events = await api(selected
+      ? `/v1/desk/audit?order_id=${encodeURIComponent(selected)}` : "/v1/desk/audit?limit=60");
+    if (!selected) events.reverse();
+    const auditKey = JSON.stringify(events) + selected;
+    if (auditKey !== lastAudit) { lastAudit = auditKey; renderAudit(events); }
+    const chain = await api("/v1/desk/audit/verify");
+    $("chain").className = "badge " + (chain.intact ? "intact" : "broken");
+    $("chain").textContent = chain.intact
+      ? `Audit log intact · ${chain.events} events`
+      : `Audit log altered at event #${chain.first_bad_seq}`;
+  } catch (error) {
+    $("chain").className = "badge broken";
+    $("chain").textContent = "Gateway unreachable";
+  }
+}
+
+document.addEventListener("click", async (event) => {
+  const button = event.target.closest("button");
+  if (!button) return;
+  if (button.dataset.trail) { selected = button.dataset.trail; return refresh(true); }
+  if (button.id === "show-all") { selected = null; return refresh(true); }
+  if (button.dataset.decide) {
+    const id = button.dataset.decide;
+    button.disabled = true;
+    try {
+      await api(`/v1/desk/orders/${encodeURIComponent(id)}/decision`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          approver: document.querySelector(`[data-approver="${id}"]`).value,
+          approved: button.dataset.approved === "true",
+          comment: document.querySelector(`[data-comment="${id}"]`).value || null,
+        }),
+      });
+      selected = id;
+    } catch (error) { alert(error.message); }
+    refresh(true);
+  }
+});
+
+refresh(true);
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>

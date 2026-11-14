@@ -1,0 +1,40 @@
+[
+  {
+    "token": "demo-nordic-hotels-agent",
+    "agent_id": "nordic-hotels-purchasing-1",
+    "agent_name": "Nordic Hotels purchasing agent",
+    "buyer_id": "100234",
+    "buyer_name": "Nordic Hotels Oy, Helsinki central kitchen",
+    "mandate": {
+      "max_autonomous_spend": 1000.0,
+      "hard_max_order_total": 10000.0,
+      "allow_substitutes": true,
+      "substitute_max_price_increase_pct": 10,
+      "allow_partial": false,
+      "allow_late": false,
+      "overage_tolerance_pct": 5,
+      "forbidden_allergens": [],
+      "allowed_categories": null,
+      "approvers": ["Head chef", "Purchasing manager"]
+    }
+  },
+  {
+    "token": "demo-school-kitchen-agent",
+    "agent_id": "espoo-schools-purchasing-1",
+    "agent_name": "Espoo school kitchens purchasing agent",
+    "buyer_id": "100871",
+    "buyer_name": "Espoo school kitchens",
+    "mandate": {
+      "max_autonomous_spend": 400.0,
+      "hard_max_order_total": 3000.0,
+      "allow_substitutes": false,
+      "substitute_max_price_increase_pct": 0,
+      "allow_partial": false,
+      "allow_late": false,
+      "overage_tolerance_pct": 5,
+      "forbidden_allergens": ["nuts", "peanuts"],
+      "allowed_categories": null,
+      "approvers": ["Kitchen manager"]
+    }
+  }
+]

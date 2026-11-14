@@ -1,0 +1,27 @@
+from pathlib import Path
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DATA_DIR = PROJECT_ROOT / "data"
+
+
+class Settings(BaseSettings):
+    """Runtime configuration, loaded from environment variables and .env."""
+
+    model_config = SettingsConfigDict(env_file=PROJECT_ROOT / ".env", extra="ignore")
+
+    # Upstream: the Valio Aimo mock API.
+    aimo_api_base_url: str = ""
+    aimo_api_key: str = ""
+
+    # This service.
+    aimo_db_path: Path = DATA_DIR / "purchasing.sqlite3"
+    aimo_agents_file: Path = PROJECT_ROOT / "mandates.json"
+    # Ed25519 key the gateway signs offers with. Created on first start.
+    aimo_signing_key_file: Path = DATA_DIR / "signing_key.pem"
+    # Identity the stdio MCP server acts as. An HTTP client sends its own bearer token instead.
+    aimo_agent_token: str = "demo-nordic-hotels-agent"
+
+
+settings = Settings()

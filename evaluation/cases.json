@@ -1,0 +1,136 @@
+[
+  {
+    "id": "lactose-free-milk",
+    "buyer_words": "I need 1,000 litres of lactose-free milk by Monday.",
+    "need": {"query": "milk", "free_from": ["lactose"], "quantity": 1000, "unit": "L"},
+    "accept": {"all": ["milk"], "none": ["sour", "coffee", "cafè", "latte", "chocolate", "cocoa", "powder", "condensed", "portion", "fermented", "curdled", "ice", "yoghurt", "vanilla"], "free_from": ["lactose"]}
+  },
+  {
+    "id": "organic-milk",
+    "buyer_words": "200 litres of organic milk for next week's breakfast service.",
+    "need": {"query": "milk", "labels": ["EU_ORGANIC_FARMING"], "quantity": 200, "unit": "L"},
+    "accept": {"all": ["milk"], "none": ["coconut", "chocolate", "cocoa", "oat", "powder", "sour", "coffee"], "labels": ["EU_ORGANIC_FARMING"]}
+  },
+  {
+    "id": "oat-drink",
+    "buyer_words": "200 litres of oat drink for the breakfast buffet.",
+    "need": {"query": "oat drink", "quantity": 200, "unit": "L"},
+    "accept": {"all": ["oat", "drink"], "none": ["choco", "vanilla", "strawberry", "snack", "20ml"]}
+  },
+  {
+    "id": "whipping-cream",
+    "buyer_words": "40 litres of lactose-free whipping cream.",
+    "need": {"query": "whipping cream", "free_from": ["lactose"], "quantity": 40, "unit": "L"},
+    "accept": {"all": ["whipping cream"], "free_from": ["lactose"]}
+  },
+  {
+    "id": "butter",
+    "buyer_words": "25 kg of butter.",
+    "need": {"query": "butter", "quantity": 25, "unit": "kg"},
+    "accept": {"all": ["butter"], "categories": ["10500", "10501"]}
+  },
+  {
+    "id": "natural-yoghurt",
+    "buyer_words": "50 kg of natural yoghurt, lactose-free.",
+    "need": {"query": "natural yoghurt", "free_from": ["lactose"], "quantity": 50, "unit": "kg"},
+    "accept": {"all": ["natural", "yoghurt"], "none": ["granola", "sauce"], "free_from": ["lactose"]}
+  },
+  {
+    "id": "eggs",
+    "buyer_words": "30 kg of eggs.",
+    "need": {"query": "eggs", "quantity": 30, "unit": "kg"},
+    "accept": {"all": ["eggs"], "none": ["chocolate", "powder", "mix", "boiled", "albumen", "scrambled"]}
+  },
+  {
+    "id": "gluten-free-pasta",
+    "buyer_words": "30 kg of gluten-free pasta.",
+    "need": {"query": "pasta", "free_from": ["gluten"], "quantity": 30, "unit": "kg"},
+    "accept": {"categories": ["21380"], "free_from": ["gluten"]}
+  },
+  {
+    "id": "basmati-rice",
+    "buyer_words": "100 kg of basmati rice.",
+    "need": {"query": "basmati rice", "quantity": 100, "unit": "kg"},
+    "accept": {"all": ["basmati"], "categories": ["21340"]}
+  },
+  {
+    "id": "wheat-flour",
+    "buyer_words": "100 kg of wheat flour.",
+    "need": {"query": "wheat flour", "quantity": 100, "unit": "kg"},
+    "accept": {"all": ["wheat flour"], "none": ["durum", "dark"]}
+  },
+  {
+    "id": "sugar",
+    "buyer_words": "50 kg of sugar.",
+    "need": {"query": "sugar", "quantity": 50, "unit": "kg"},
+    "refine": {"exclude_terms": ["liquid"]},
+    "accept": {"all": ["sugar"], "none": ["liquid", "syrup", "vanilla", "icing", "brown", "pearl", "cube", "stick", "portion", "cane"], "categories": ["22100"]}
+  },
+  {
+    "id": "oat-flakes",
+    "buyer_words": "25 kg of gluten-free oat flakes.",
+    "need": {"query": "oat flakes", "free_from": ["gluten"], "quantity": 25, "unit": "kg"},
+    "accept": {"all": ["oat flakes"], "free_from": ["gluten"]}
+  },
+  {
+    "id": "nut-free-granola",
+    "buyer_words": "10 kg of granola, it must not contain nuts.",
+    "need": {"query": "granola", "exclude_allergens": ["nuts"], "quantity": 10, "unit": "kg"},
+    "accept": {"all": ["granola"], "none": ["nut", "almond", "yoghurt"], "not_declared": ["nuts"]}
+  },
+  {
+    "id": "olive-oil",
+    "buyer_words": "20 litres of extra virgin olive oil.",
+    "need": {"query": "extra virgin olive oil", "quantity": 20, "unit": "L"},
+    "accept": {"all": ["extra virgin", "olive oil"]}
+  },
+  {
+    "id": "rapeseed-oil",
+    "buyer_words": "40 litres of rapeseed oil for the fryers.",
+    "need": {"query": "rapeseed oil", "quantity": 40, "unit": "L"},
+    "accept": {"all": ["rapeseed oil"], "none": ["cold pressed", "spray"]}
+  },
+  {
+    "id": "orange-juice",
+    "buyer_words": "100 litres of orange juice.",
+    "need": {"query": "orange juice", "quantity": 100, "unit": "L"},
+    "accept": {"all": ["orange juice"], "none": ["concentrate", "drink", "500%"]}
+  },
+  {
+    "id": "crushed-tomatoes",
+    "buyer_words": "40 kg of crushed tomatoes.",
+    "need": {"query": "crushed tomatoes", "quantity": 40, "unit": "kg"},
+    "accept": {"all": ["crushed tomatoes"]}
+  },
+  {
+    "id": "potatoes",
+    "buyer_words": "200 kg of washed potatoes.",
+    "need": {"query": "washed potatoes", "quantity": 200, "unit": "kg"},
+    "accept": {"all": ["potato", "washed"], "none": ["sweet"]}
+  },
+  {
+    "id": "chicken-breast",
+    "buyer_words": "60 kg of plain chicken breast fillet.",
+    "need": {"query": "chicken breast fillet", "quantity": 60, "unit": "kg"},
+    "accept": {"all": ["chicken", "breast", "fillet"], "none": ["breaded", "battered", "tempura", "nugget", "spicy", "grilled", "roasted", "cooked", "marinated", "strip", "kebab"]}
+  },
+  {
+    "id": "salmon-fillet",
+    "buyer_words": "40 kg of fresh salmon fillet.",
+    "need": {"query": "salmon fillet", "quantity": 40, "unit": "kg"},
+    "accept": {"all": ["salmon", "fillet"], "none": ["smoked", "marinated", "frozen", "gravad", "salted", "cube", "strip"]}
+  },
+  {
+    "id": "minced-beef",
+    "buyer_words": "30 kg of minced beef.",
+    "need": {"query": "minced beef", "quantity": 30, "unit": "kg"},
+    "refine": {"exclude_terms": ["pork"]},
+    "accept": {"all": ["minced", "beef"], "none": ["pork", "patty", "liver", "pizza", "burger"]}
+  },
+  {
+    "id": "filter-coffee",
+    "buyer_words": "15 kg of filter coffee.",
+    "need": {"query": "filter coffee", "quantity": 15, "unit": "kg"},
+    "accept": {"all": ["coffee"], "none": ["pot", "yoghurt", "flavouring", "bun", "instant", "decaf", "filter paper", "filters"], "categories": ["22300", "22410", "22411"]}
+  }
+]

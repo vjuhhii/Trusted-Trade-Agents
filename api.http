@@ -1,0 +1,29 @@
+# Requests for the VS Code REST Client extension. Values are read from .env.
+@baseUrl = {{$dotenv AIMO_API_BASE_URL}}
+@apiKey = {{$dotenv AIMO_API_KEY}}
+
+### Ping
+GET {{baseUrl}}/api/ping
+X-API-Key: {{apiKey}}
+
+### Availability: 1-1000 product codes per request
+POST {{baseUrl}}/api/availability
+X-API-Key: {{apiKey}}
+Content-Type: application/json
+
+{
+  "customer": "123",
+  "requestedDate": "2026-11-16",
+  "products": ["460013", "460063", "463989", "460056"]
+}
+
+### Price: 1-1000 product codes per request
+POST {{baseUrl}}/api/price
+X-API-Key: {{apiKey}}
+Content-Type: application/json
+
+{
+  "customer": "123",
+  "requestedDate": "2026-11-16",
+  "products": ["460013", "460063", "463989", "460056"]
+}

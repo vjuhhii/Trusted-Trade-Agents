@@ -1,0 +1,24 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Secrets / local config
+.env
+
+# Challenge datasets: fetch with `uv run python -m aimo_agent.datasets`.
+# Not committed: the product file is 87 MB and the data is for use within the challenge only.
+data/
+
+# Tool caches
+.pytest_cache/
+.ruff_cache/
+
+# Node (frontend / MCP inspector)
+node_modules/

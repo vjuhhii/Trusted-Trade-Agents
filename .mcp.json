@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "aimo": {
+      "command": "uv",
+      "args": ["run", "python", "-m", "aimo_agent.mcp_server"]
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "aimo-gateway",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "uvicorn", "aimo_agent.app:app", "--port", "8000"],
+      "port": 8000
+    }
+  ]
+}
