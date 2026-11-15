@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from aimo_agent.demo_agent import next_monday
 from aimo_agent.models import AgentIdentity, LeftOutItem, Need, Option, PurchaseRequest
+from aimo_agent.offers import day
 from aimo_agent.service import PurchasingService
 
 _PLAIN_MILK = ["sour", "coffee", "latte", "portion", "cafè"]
@@ -181,10 +182,18 @@ def _choice(request: PurchaseRequest) -> Option | None:
 
 
 def _why(option: Option) -> str:
-    return (
-        f"Top-ranked option ({option.tier}): covers {option.coverage_pct:g}% of the need, "
-        f"delivery {option.delivery_date}, and the mandate does not forbid it."
-    )
+    """The scripted agent's reason, in the words a cook reads on the kitchen view."""
+    arrives = f"arriving {day(option.delivery_date)}"
+    if option.tier == "best":
+        return f"Exactly what you asked for, all of it, {arrives}: the cheapest way to get it."
+    if option.tier == "better":
+        if option.has_substitute:
+            return (
+                f"What you asked for is short, so I took the closest safe replacement: all of "
+                f"it, {arrives}. The differences are listed with the product."
+            )
+        return f"All of it, {arrives}, though not from a single product."
+    return f"The most that can be had: {option.coverage_pct:g}% of it, {arrives}."
 
 
 async def run_scenario(
@@ -214,7 +223,6 @@ async def _run_basket(
     requests = await service.create_requests(agent, needs)
     chosen = [(request, _choice(request)) for request in requests]
     items = [(request.id, option.id) for request, option in chosen if option]
-    missing = [request.need.text or request.need.query for request, option in chosen if not option]
     results = [
         ScenarioResult(request_id=request.id, status="nothing_orderable")
         for request, option in chosen
@@ -222,9 +230,9 @@ async def _run_basket(
     ]
     if not items:
         return results
-    note = f"The top-ranked option for each of the {len(items)} products that can arrive in time."
-    if missing:
-        note += f" Not orderable by the date, left for the buyer: {'; '.join(missing)}."
+    by = day(needs[0].deliver_by)
+    # What could not be found goes to left_out: the kitchen view shows it, the note need not.
+    note = f"For each of the {len(items)} products, the cheapest that arrives by {by}."
     gaps = [LeftOutItem(request_id=request.id) for request, option in chosen if option is None]
     basket = await service.place_basket(agent, items, title, note, gaps)
     return [

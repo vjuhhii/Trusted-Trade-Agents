@@ -29,7 +29,13 @@ It is built for a phone and for people who do not live in software: one decision
 plain words ("It costs €1,010. On its own it may spend up to €1,000 a day."), two buttons, and
 the assistant's rules as one number and four switches. No "mandate", no "policy", no codes. A
 menu the assistant ordered as one basket is one card, not six: "6 products in one order",
-the total, why it asks, and "Yes, order all 6" or "No".
+the total, why it asks, and "Yes, order all 6" or "No". The card quotes the assistant's own
+reason for its choice, and every compromise is said in kitchen words ("Sold in whole packs:
+you get 51 kg for the 50 you asked"). Orders and rules are two tabs, so the rules do not sink
+below a growing order history.
+
+On a phone, start the gateway with `--host 0.0.0.0` and open `http://<laptop's IP>:8000/` on
+the same Wi-Fi. "Add to Home Screen" gives it an icon and opens it full screen, like an app.
 
 **The trade console, http://127.0.0.1:8000/console** — the same data for those who want to see
 how it works. It shows the three parties on one screen: the buyer's agent, the wholesaler's

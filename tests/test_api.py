@@ -235,3 +235,14 @@ def test_mandate_change_is_stored_logged_and_seen_at_once(
 def test_pages_are_revalidated_so_a_demo_never_shows_an_old_one(client: TestClient) -> None:
     for page in ("/", "/console"):
         assert client.get(page).headers["cache-control"] == "no-cache"
+
+
+def test_the_kitchen_view_can_be_added_to_a_home_screen(client: TestClient) -> None:
+    manifest = client.get("/assets/manifest.webmanifest")
+    assert manifest.headers["content-type"].startswith("application/manifest+json")
+    icons = manifest.json()["icons"]
+    for icon in icons:
+        assert client.get(icon["src"]).content.startswith(b"\x89PNG")
+    assert '<link rel="manifest" href="/assets/manifest.webmanifest">' in client.get("/").text
+    assert client.get("/assets/..%2Fapp.py").status_code == 404
+    assert client.get("/assets/kitchen.html").status_code == 404

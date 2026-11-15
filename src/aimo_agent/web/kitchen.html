@@ -2,30 +2,40 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Your purchasing assistant</title>
+<meta name="theme-color" content="#f5f4f1" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#101418" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="/assets/manifest.webmanifest">
+<link rel="icon" href="/assets/icon-192.png">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Assistant">
 <style>
   :root {
     --bg: #f5f4f1; --panel: #ffffff; --line: #e4e1da; --text: #1b1f24; --muted: #646b75;
     --accent: #0b5cad; --ok: #12703b; --ok-bg: #e2f3e8; --warn: #8a5200; --warn-bg: #fdf0d3;
-    --bad: #a11f1f; --bad-bg: #fbe3e3;
+    --bad: #a11f1f; --bad-bg: #fbe3e3; --soft: #f0eee9;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #101418; --panel: #1a2029; --line: #2c3541; --text: #eceff3; --muted: #9aa6b5;
       --accent: #74b6ff; --ok: #6fd69a; --ok-bg: #143523; --warn: #f0c36e; --warn-bg: #3a2d10;
-      --bad: #ff9c9c; --bad-bg: #401a1a;
+      --bad: #ff9c9c; --bad-bg: #401a1a; --soft: #222a35;
     }
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
          font: 17px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  main { max-width: 560px; margin: 0 auto; padding: 20px 16px 48px; }
+  main { max-width: 560px; margin: 0 auto;
+         padding: calc(20px + env(safe-area-inset-top)) 16px calc(104px + env(safe-area-inset-bottom)); }
   header { margin-bottom: 22px; }
   header .hello { font-size: 14px; color: var(--muted); }
   h1 { font-size: 25px; line-height: 1.2; margin: 2px 0 0; }
   h2 { font-size: 13px; letter-spacing: .07em; text-transform: uppercase; color: var(--muted);
        margin: 30px 0 10px; }
+  [role="tabpanel"] > h2:first-child { margin-top: 0; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
           padding: 18px; margin-bottom: 12px; }
   .ask { border: 2px solid var(--warn); }
@@ -36,10 +46,17 @@
   .why { background: var(--warn-bg); color: var(--warn); border-radius: 12px; padding: 12px 14px;
          margin: 14px 0 0; font-size: 16px; }
   .why b { display: block; margin-bottom: 2px; }
+  .says { margin: 14px 0 0; padding: 12px 14px; border-radius: 12px; background: var(--soft);
+          font-size: 16px; line-height: 1.45; }
+  .says b { display: block; font-size: 13px; color: var(--muted); font-weight: 650;
+            letter-spacing: .02em; margin-bottom: 2px; }
+  .notes { margin: 10px 0 0; padding: 0; list-style: none; font-size: 15px; color: var(--muted); }
+  .notes li { position: relative; padding-left: 16px; }
+  .notes li::before { content: "•"; position: absolute; left: 2px; }
   .buttons { display: grid; grid-template-columns: 1.4fr 1fr; gap: 10px; margin-top: 16px; }
   button { font: inherit; font-weight: 650; border-radius: 12px; border: 2px solid transparent;
            min-height: 54px; cursor: pointer; }
-  button:focus-visible, input:focus-visible, select:focus-visible {
+  button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible {
     outline: 3px solid var(--accent); outline-offset: 2px; }
   button:disabled { opacity: .55; }
   .yes { background: var(--ok); color: #fff; font-size: 19px; }
@@ -55,18 +72,20 @@
   .item .name { font-weight: 600; line-height: 1.35; }
   .item .amount { font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .item .note { grid-column: 1 / -1; font-size: 15px; color: var(--muted); }
+  .item .says { grid-column: 1 / -1; margin: 6px 0 0; font-size: 15px; }
   details.lines { margin: 12px 0 0; font-size: 15px; }
   .item details.lines { grid-column: 1 / -1; margin: 2px 0 0; }
+  details.lines summary { cursor: pointer; color: var(--accent); font-weight: 600; min-height: 36px;
+                          display: flex; align-items: center; }
+  details.lines .line { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 8px 0;
+                        border-top: 1px solid var(--line); line-height: 1.35; }
+  details.lines .line:first-of-type { border-top: 0; }
+  details.lines .line .pill { margin: 0 0 0 6px; }
+  details.lines .line .notes { margin: 4px 0 0; font-size: 14px; }
   .gaps { grid-column: 1 / -1; margin: 12px 0 0; padding: 10px 12px; border-radius: 12px;
           background: var(--bad-bg); color: var(--bad); font-size: 15px; }
   .item .gaps { margin: 6px 0 0; }
   .gaps b { display: block; }
-  details.lines summary { cursor: pointer; color: var(--accent); font-weight: 600; min-height: 32px;
-                          display: flex; align-items: center; }
-  details.lines .line { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 7px 0;
-                        border-top: 1px solid var(--line); line-height: 1.35; }
-  details.lines .line:first-of-type { border-top: 0; }
-  details.lines .line .pill { margin: 0 0 0 6px; }
   .pill { display: inline-block; border-radius: 99px; padding: 1px 10px; font-size: 13px;
           font-weight: 650; margin-right: 6px; }
   .pill.ok { background: var(--ok-bg); color: var(--ok); }
@@ -77,7 +96,6 @@
   .rule:first-child { border-top: 0; padding-top: 0; }
   .rule small { display: block; color: var(--muted); font-size: 14px; line-height: 1.35; }
   .rule.spend { grid-template-columns: 1fr; }
-  .rule.spend .stepper { justify-content: flex-start; }
   .stepper { display: flex; align-items: center; gap: 6px; }
   .stepper button { min-height: 44px; width: 44px; background: var(--bg); color: var(--text);
                     border-color: var(--line); font-size: 22px; }
@@ -101,7 +119,28 @@
            background: var(--panel); color: var(--text); }
   footer { margin-top: 30px; text-align: center; font-size: 14px; color: var(--muted); }
   footer a { color: var(--accent); }
-  #saved { color: var(--ok); font-weight: 650; visibility: hidden; margin-left: 8px; }
+  #saved { color: var(--ok); font-weight: 650; visibility: hidden; margin-left: 8px;
+           text-transform: none; letter-spacing: 0; }
+  .tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 2; display: flex;
+          justify-content: center; background: var(--panel); border-top: 1px solid var(--line);
+          padding: 4px 12px calc(4px + env(safe-area-inset-bottom)); }
+  .tabs button { position: relative; flex: 1; max-width: 240px; min-height: 58px; border: 0;
+                 background: transparent; color: var(--muted); display: flex;
+                 flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+                 font-size: 13px; }
+  .tabs button[aria-selected="true"] { color: var(--accent); }
+  .tabs svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.8;
+              stroke-linecap: round; stroke-linejoin: round; }
+  .badge { position: absolute; top: 4px; left: calc(50% + 8px); min-width: 20px; height: 20px;
+           padding: 0 6px; border-radius: 10px; background: var(--bad); color: var(--panel);
+           font-size: 12px; line-height: 20px; font-weight: 700; }
+  .toast { position: fixed; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom)); z-index: 3;
+           transform: translate(-50%, 12px); max-width: calc(100% - 32px); width: max-content;
+           padding: 12px 18px; border-radius: 14px; background: var(--text); color: var(--bg);
+           font-size: 16px; font-weight: 600; opacity: 0; pointer-events: none;
+           transition: opacity .2s, transform .2s; }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  @media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
 </style>
 </head>
 <body>
@@ -112,22 +151,45 @@
     <label class="me">I am <select id="me" aria-label="Who is deciding"></select></label>
   </header>
 
-  <div id="asks"></div>
+  <section id="tab-orders" role="tabpanel" aria-labelledby="t-orders">
+    <div id="asks"></div>
+    <h2>What it did for you</h2>
+    <div class="card" id="done"></div>
+    <footer>You talk to your assistant in your own words. This page is where it asks you.<br>
+      <a href="/console">See how it works under the hood</a></footer>
+  </section>
 
-  <h2>What it did for you</h2>
-  <div class="card" id="done"></div>
-
-  <h2>Your rules <span id="saved">Saved</span></h2>
-  <div class="card" id="rules"></div>
-
-  <footer>You talk to your assistant in your own words. This page is where it asks you.<br>
-    <a href="/console">See how it works under the hood</a></footer>
+  <section id="tab-rules" role="tabpanel" aria-labelledby="t-rules" hidden>
+    <h2>Your rules <span id="saved">Saved</span></h2>
+    <div class="card" id="rules"></div>
+    <footer>Your rules are kept by the wholesaler and checked on every order, whatever your
+      assistant does or says.</footer>
+  </section>
 </main>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<nav class="tabs" role="tablist" aria-label="Sections">
+  <button role="tab" id="t-orders" data-tab="orders" aria-controls="tab-orders" aria-selected="true"
+    aria-label="Orders">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="2"/>
+      <path d="M9 3.5h6v3H9z"/><path d="M9 13.5l2 2 4-4.5"/></svg>
+    <span>Orders</span><span class="badge" id="badge" hidden></span>
+  </button>
+  <button role="tab" id="t-rules" data-tab="rules" aria-controls="tab-rules" aria-selected="false"
+    aria-label="Rules">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/>
+      <circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>
+    <span>Rules</span>
+  </button>
+</nav>
+
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const eur = (n) => Number(n).toLocaleString("en-GB", { style: "currency", currency: "EUR" });
+const num = (n) => Number(n).toLocaleString("en-GB");
 const dayOf = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-GB",
   { weekday: "long", day: "numeric", month: "long" });
 const momentOf = (iso) => new Date(iso).toLocaleString("en-GB",
@@ -140,12 +202,15 @@ const AMOUNT = { L: "litres", KG: "kg", SALES_UNIT: "units" };
 const plain = (text) => String(text)
   .replace(/\bthe agent's\b/g, "your assistant's").replace(/\bThe agent\b/g, "Your assistant")
   .replace(/\bthe agent\b/g, "your assistant").replace(/\bthe buyer's\b/g, "your")
-  .replace(/\bmandate\b/g, "rules").replace(/ EUR\b/g, " €")
+  .replace(/\bthe buyer\b/g, "you").replace(/\bthe mandate does\b/g, "your rules do")
+  .replace(/\bthe mandate's\b/g, "your rules'").replace(/\bmandate\b/g, "rules").replace(/ EUR\b/g, " €")
   .replace(/^Needs human approval: /, "").replace(/^Refused by the rules: /, "");
+const lower = (text) => text.charAt(0).toLowerCase() + text.slice(1);
 
 let me = null;
 let lastState = "";
 let saving = false;
+let waitingBefore = null;
 
 async function api(path, options) {
   const response = await fetch(path, options);
@@ -155,7 +220,41 @@ async function api(path, options) {
 }
 
 const lineText = (line) =>
-  `${Number(line.units).toLocaleString("en-GB")} ${UNITS[line.sales_unit] || line.sales_unit} of ${line.name}`;
+  `${num(line.units)} ${UNITS[line.sales_unit] || line.sales_unit} of ${line.name}`;
+
+// The gateway states each compromise for agents; the cook gets the same fact in kitchen words.
+function tradeOff(text, option) {
+  const unit = AMOUNT[option.unit];
+  let m;
+  if ((m = text.match(/^Pack sizes round the quantity up to ([\d.]+) /))) {
+    return `Sold in whole packs: you get ${num(m[1])} ${unit} for the ${num(option.quantity_requested)} you asked.`;
+  }
+  if ((m = text.match(/^(.+): ([\d.]+) (\S+) per \S+ as the product data declares it/))) {
+    return `${m[1]}: ${m[2]} ${m[3]} each, as the product's own data says.`;
+  }
+  if ((m = text.match(/^Covers ([\d.]+) of ([\d.]+) /))) {
+    return `Only ${num(m[1])} of the ${num(m[2])} ${unit} you asked for.`;
+  }
+  if ((m = text.match(/^Split across (\d+) products/))) {
+    return `Split across ${m[1]} products: none has enough on its own.`;
+  }
+  return plain(text)
+    .replace(/\(([+-])([\d.]+)% per (\S+)\)/, (_, sign, pct, per) =>
+      `(${pct}% ${sign === "-" ? "cheaper" : "dearer"} per ${per === "L" ? "litre" : per})`)
+    .replace(/ is a wholesaler-listed substitute/, " replaces what you asked, as the wholesaler suggests")
+    .replace(/ is a substitute/, " replaces what you asked")
+    .replace(/ is outside the stated preferences: /, " is not what you prefer: ")
+    .replace(/ ships from the supplier's warehouse: the quantity is not confirmed at order time\./,
+      " comes from the supplier's warehouse: the amount is confirmed later.");
+}
+
+const notesOf = (option) => option.trade_offs.length
+  ? `<ul class="notes">${option.trade_offs.map((t) => `<li>${esc(tradeOff(t, option))}</li>`).join("")}</ul>`
+  : "";
+
+// What the assistant said when it chose, in its own words.
+const says = (note) => note
+  ? `<div class="says"><b>Your assistant says</b>“${esc(plain(note))}”</div>` : "";
 
 function reason(rule, order, limit) {
   // The commonest case gets the shortest wording; the others keep the gateway's own sentence.
@@ -176,12 +275,14 @@ function askCard(order, limit) {
   const option = order.option;
   const reasons = order.policy.rules.filter((r) => r.outcome === "needs_approval")
     .map((r) => `<div>${esc(reason(r, order, limit))}</div>`).join("");
-  const total = `${Number(option.quantity_covered).toLocaleString("en-GB")} ${AMOUNT[option.unit]}`;
+  const total = `${num(option.quantity_covered)} ${AMOUNT[option.unit]}`;
   return `<section class="card ask" aria-label="Order waiting for you">
     ${order.need_text ? `<p class="asked">You asked: “${esc(order.need_text)}”</p>` : ""}
     <p class="what">${option.lines.map((l) => esc(lineText(l))).join("<br>")}</p>
     <div class="sub">${esc(total)} in total · arrives ${dayOf(option.delivery_date)}</div>
+    ${notesOf(option)}
     <p class="price">${eur(option.total)} <span class="sub">+ VAT</span></p>
+    ${says(order.agent_note)}
     <div class="why"><b>Why your assistant is asking you</b>${reasons}</div>
     ${option.order_by ? `<p class="sub" style="margin:12px 0 0">Decide before
       ${momentOf(option.order_by)}, or it cannot arrive on ${dayOf(option.delivery_date)}.</p>` : ""}
@@ -207,6 +308,17 @@ function groups(orders) {
 const sum = (orders) => orders.reduce((total, order) => total + order.option.total, 0);
 const shortName = (order) => order.need_text || order.option.lines[0].name;
 const products = (n) => `${n} product${n === 1 ? "" : "s"}`;
+const ownReason = (order) =>
+  order.policy.rules.some((r) => r.outcome === "needs_approval" && !r.rule.includes("spend_limit"));
+
+function itemLines(orders, withAsks) {
+  return orders.map((order) => `<div class="line">
+      <span>${order.option.lines.map((l) => esc(lineText(l))).join("<br>")}
+        ${withAsks && ownReason(order) ? '<span class="pill wait">see why</span>' : ""}
+        ${order.status === "denied" ? '<span class="pill stop">left out</span>' : ""}
+        ${notesOf(order.option)}</span>
+      <span class="amount">${eur(order.option.total)}</span></div>`).join("");
+}
 
 function basketReasons(orders, limit) {
   const waiting = orders.filter((o) => o.status === "pending_approval");
@@ -236,21 +348,15 @@ function basketCard(orders, limit, gaps = []) {
   const first = waiting[0];
   const days = [...new Set(waiting.map((o) => o.option.delivery_date))].sort();
   const cutOffs = waiting.map((o) => o.option.order_by).filter(Boolean).sort();
-  const items = waiting.map((order) => `<div class="line">
-      <span>${order.option.lines.map((l) => esc(lineText(l))).join("<br>")}
-        ${order.policy.rules.some((r) => r.outcome === "needs_approval" && !r.rule.includes("spend_limit"))
-          ? '<span class="pill wait">see why</span>' : ""}</span>
-      <span class="amount">${eur(order.option.total)}</span></div>`).join("");
-  const left = blocked.map((order) => `<div class="line"><span>${esc(shortName(order))}
-      <span class="pill stop">left out</span><br><span class="sub">${esc(plain(order.status_reason))}</span></span>
-      <span></span></div>`).join("");
   return `<section class="card ask" aria-label="Basket waiting for you">
     <p class="asked">For “${esc(first.basket_title)}”</p>
     <p class="what">${products(waiting.length)} in one order</p>
     <div class="sub">Arrives ${days.map(dayOf).join(" and ")}</div>
     <p class="price">${eur(sum(waiting))} <span class="sub">+ VAT</span></p>
     ${gapList(gaps)}
-    <details class="lines" data-key="ask-${esc(first.basket_id)}"><summary>What is in it</summary>${items}${left}</details>
+    ${says(first.agent_note)}
+    <details class="lines" data-key="ask-${esc(first.basket_id)}"><summary>What is in it</summary>
+      ${itemLines([...waiting, ...blocked], true)}</details>
     <div class="why"><b>Why your assistant is asking you</b>${basketReasons(orders, limit)}</div>
     ${cutOffs.length ? `<p class="sub" style="margin:12px 0 0">Decide before
       ${momentOf(cutOffs[0])}, or not everything can arrive in time.</p>` : ""}
@@ -273,16 +379,13 @@ function doneBasket(orders, gaps = []) {
     : ["stop", "Blocked", esc(plain(orders[0].status_reason))];
   const arrives = status("confirmed")
     ? ` Arrives ${[...new Set(live.map((o) => o.option.delivery_date))].sort().map(dayOf).join(" and ")}.` : "";
-  const items = orders.map((order) => `<div class="line">
-      <span>${order.option.lines.map((l) => esc(lineText(l))).join("<br>")}
-        ${order.status === "denied" ? '<span class="pill stop">left out</span>' : ""}</span>
-      <span class="amount">${eur(order.option.total)}</span></div>`).join("");
   return `<div class="item">
     <span class="name">${esc(orders[0].basket_title)} · ${products(live.length || orders.length)}</span>
     <span class="amount">${eur(sum(live.length ? live : orders))}</span>
     <span class="note"><span class="pill ${kind}">${label}</span>${note}${arrives}</span>
     ${status("pending_approval") ? "" : gapList(gaps)}
-    <details class="lines" data-key="done-${esc(orders[0].basket_id)}"><summary>What is in it</summary>${items}</details></div>`;
+    <details class="lines" data-key="done-${esc(orders[0].basket_id)}"><summary>What is in it</summary>
+      ${status("pending_approval") ? "" : says(orders[0].agent_note)}${itemLines(orders, false)}</details></div>`;
 }
 
 function doneItem(entry) {
@@ -303,14 +406,16 @@ function doneItem(entry) {
     denied: ["stop", "Blocked", esc(plain(order.status_reason))],
     expired: ["stop", "Too late", esc(plain(order.status_reason))],
   }[order.status];
+  const why = order.status === "pending_approval" || (!order.agent_note && !order.option.trade_offs.length)
+    ? "" : `<details class="lines" data-key="done-${esc(order.id)}"><summary>Why this one</summary>
+      ${says(order.agent_note)}${notesOf(order.option)}</details>`;
   return `<div class="item">
     <span class="name">${order.option.lines.map((l) => esc(lineText(l))).join("<br>")}</span>
     <span class="amount">${eur(order.option.total)}</span>
     <span class="note"><span class="pill ${notes[0]}">${notes[1]}</span>${notes[2]}
-      ${order.status === "confirmed" ? ` Arrives ${dayOf(order.option.delivery_date)}.` : ""}</span></div>`;
+      ${order.status === "confirmed" ? ` Arrives ${dayOf(order.option.delivery_date)}.` : ""}</span>
+    ${why}</div>`;
 }
-
-const lower = (text) => text.charAt(0).toLowerCase() + text.slice(1);
 
 function gapList(gaps = []) {
   if (!gaps.length) return "";
@@ -338,6 +443,7 @@ function render(orders, requests, agent) {
     : `<div class="card calm"><div class="tick">✓</div>
         <p><b>Nothing needs you right now.</b></p>
         <p class="sub">Your assistant is ordering within your rules.</p></div>`;
+  showWaiting(waiting.length);
 
   const ordered = new Set(orders.map((o) => o.request_id));
   const latest = (group) => group.map((o) => o.created_at).sort().at(-1);
@@ -349,7 +455,7 @@ function render(orders, requests, agent) {
     // basket, and what the assistant replaced with a better request is no news to anyone.
     ...requests.filter((r) => !ordered.has(r.id) && !r.options.length && !r.closed_as)
       .map((request) => ({ kind: "failed", at: request.created_at, request })),
-  ].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 8);
+  ].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 10);
   $("done").innerHTML = entries.map(doneItem).join("")
     || '<p class="sub" style="margin:0">Nothing yet. Tell your assistant what the kitchen needs.</p>';
 
@@ -371,6 +477,36 @@ function render(orders, requests, agent) {
     ${rule("allow_late", "Accept a later delivery day", "When it cannot arrive on the day I asked.")}
     <p class="never">It can never order something that breaks an allergy rule. Nobody can
       switch that off, and no approval overrides it.</p>`;
+}
+
+// How many decisions wait: on the tab, in the window title, and a buzz when a new one arrives.
+function showWaiting(count) {
+  $("badge").hidden = !count;
+  $("badge").textContent = count;
+  $("t-orders").setAttribute("aria-label", count ? `Orders, ${count} waiting for you` : "Orders");
+  document.title = count ? `(${count}) Your purchasing assistant` : "Your purchasing assistant";
+  // Browsers allow a buzz only once the person has touched the page.
+  if (waitingBefore !== null && count > waitingBefore && navigator.userActivation?.hasBeenActive) {
+    navigator.vibrate?.(200);
+  }
+  waitingBefore = count;
+}
+
+function toast(text) {
+  const box = $("toast");
+  box.textContent = text;
+  box.classList.add("show");
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => box.classList.remove("show"), 3200);
+}
+
+function showTab(tab) {
+  for (const name of ["orders", "rules"]) {
+    $(`tab-${name}`).hidden = name !== tab;
+    $(`t-${name}`).setAttribute("aria-selected", String(name === tab));
+  }
+  history.replaceState(null, "", tab === "rules" ? "#rules" : location.pathname + location.search);
+  window.scrollTo(0, 0);
 }
 
 async function refresh(force = false) {
@@ -400,23 +536,32 @@ async function saveRules(change) {
   refresh(true);
 }
 
-document.addEventListener("click", async (event) => {
+async function decide(button) {
+  const approved = button.dataset.approved === "true";
+  for (const b of button.closest(".buttons").querySelectorAll("button")) b.disabled = true;
+  // The gateway checks every price and stock level again before it commits: say so.
+  button.textContent = approved ? "Ordering…" : "One moment…";
+  try {
+    const order = await api(`/v1/desk/orders/${encodeURIComponent(button.dataset.decide)}/decision`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ approver: me, approved }) });
+    toast(order.status === "confirmed" ? `Ordered. It arrives ${dayOf(order.option.delivery_date)}.`
+      : order.status === "expired" ? "Too late: the offer changed. Ask your assistant again."
+      : "Not ordered. Your assistant will know.");
+  } catch (error) { alert(error.message); }
+  refresh(true);
+}
+
+document.addEventListener("click", (event) => {
   const button = event.target.closest("button");
   if (!button) return;
+  if (button.dataset.tab) return showTab(button.dataset.tab);
   if (button.dataset.step) {
     const next = Math.max(0, Number($("limit").value) + Number(button.dataset.step));
     $("limit").value = next;
     return saveRules({ max_autonomous_spend: Math.max(1, next) });
   }
-  if (button.dataset.decide) {
-    button.disabled = true;
-    try {
-      await api(`/v1/desk/orders/${encodeURIComponent(button.dataset.decide)}/decision`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ approver: me, approved: button.dataset.approved === "true" }) });
-    } catch (error) { alert(error.message); }
-    refresh(true);
-  }
+  if (button.dataset.decide) decide(button);
 });
 document.addEventListener("change", (event) => {
   const target = event.target;
@@ -435,6 +580,7 @@ new MutationObserver(() => {
   for (const box of document.querySelectorAll("details[data-key]")) box.open = opened.has(box.dataset.key);
 }).observe(document.querySelector("main"), { childList: true, subtree: true });
 
+showTab(location.hash === "#rules" ? "rules" : "orders");
 refresh(true);
 setInterval(refresh, 2000);
 </script>

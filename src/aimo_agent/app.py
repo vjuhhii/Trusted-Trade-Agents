@@ -380,5 +380,21 @@ def console() -> FileResponse:
     return FileResponse(WEB_DIR / "index.html", headers=_REVALIDATE)
 
 
+# What a phone needs to put the kitchen view on its home screen as an app.
+_ASSETS = {
+    "manifest.webmanifest": "application/manifest+json",
+    "icon-192.png": "image/png",
+    "icon-512.png": "image/png",
+    "apple-touch-icon.png": "image/png",
+}
+
+
+@app.get("/assets/{name}", include_in_schema=False)
+def asset(name: str) -> FileResponse:
+    if name not in _ASSETS:
+        raise ServiceError("not_found", f"No asset {name!r}.", 404)
+    return FileResponse(WEB_DIR / name, media_type=_ASSETS[name], headers=_REVALIDATE)
+
+
 # MCP over Streamable HTTP at /mcp. Mounted last so the routes above take precedence.
 app.mount("/", mcp.streamable_http_app())
