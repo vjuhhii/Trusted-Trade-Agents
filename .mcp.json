@@ -1,8 +1,11 @@
 {
   "mcpServers": {
     "aimo": {
-      "command": "uv",
-      "args": ["run", "python", "-m", "aimo_agent.mcp_server"]
+      "type": "http",
+      "url": "http://127.0.0.1:8000/mcp",
+      "headers": {
+        "Authorization": "Bearer demo-nordic-hotels-agent"
+      }
     }
   }
 }

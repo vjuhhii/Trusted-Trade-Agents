@@ -61,9 +61,21 @@ The scripted agent talks to the gateway over MCP (Streamable HTTP) and makes the
 LLM agent would. For the 1000-litre request it stops at "waiting for approval": approve or
 reject in the browser and it carries on.
 
-**With an LLM agent.** `.mcp.json` registers the gateway as an MCP server for Claude Code and
-other MCP hosts (stdio). Open the project, approve the `aimo` server, and type the request in
-plain words. REST clients use the same operations: http://127.0.0.1:8000/docs.
+**With an LLM agent.** The agent is the hotel's, not the wholesaler's: any MCP host connects to
+the gateway over the network with the key the wholesaler issued it, as it would to
+`https://agents.valioaimo.fi/mcp` in production. `.mcp.json` does this for Claude Code: start
+the gateway, open the project, approve the `aimo` server, and type the request in plain words.
+
+```json
+{"mcpServers": {"aimo": {"type": "http", "url": "http://127.0.0.1:8000/mcp",
+  "headers": {"Authorization": "Bearer demo-nordic-hotels-agent"}}}}
+```
+
+The key decides who the agent buys for and under which rules: `demo-school-kitchen-agent` is
+the school kitchens' agent, with a 400 € limit and nuts forbidden. The agent, the kitchen view
+and the console all work against the one gateway. Hosts that only launch local servers can use
+stdio instead (`uv run python -m aimo_agent.mcp_server`, acting as `AIMO_AGENT_TOKEN`). REST
+clients use the same operations: http://127.0.0.1:8000/docs.
 
 ## The flow
 
