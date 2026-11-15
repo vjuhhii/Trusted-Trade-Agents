@@ -1,5 +1,7 @@
 # Aimo Agent Gateway
 
+[![CI](https://github.com/vjuhhii/Trusted-Trade-Agents/actions/workflows/ci.yml/badge.svg)](https://github.com/vjuhhii/Trusted-Trade-Agents/actions/workflows/ci.yml)
+
 Junction 2026 × Valio Aimo. An open interface through which an **external purchasing agent**
 works with a food-service wholesaler: it looks up products, gets fixed-price offers, places an
 order, and hands anything beyond its authority to a human — with every step recorded.
@@ -23,7 +25,8 @@ uv run uvicorn aimo_agent.app:app       # the gateway
 
 There are two screens, for two audiences.
 
-**The kitchen view, http://127.0.0.1:8000/** — what a cook or a hotel owner sees. They talk to
+**The kitchen view, http://127.0.0.1:8000/?key=demo-head-chef** (signed in as the hotel's head
+chef) — what a cook or a hotel owner sees. They talk to
 their assistant in their own words; this page is the only screen the wholesaler asks of them.
 It is built for a phone and for people who do not live in software: one decision at a time, in
 plain words ("It costs €1,010. On its own it may spend up to €1,000 a day."), two buttons, and

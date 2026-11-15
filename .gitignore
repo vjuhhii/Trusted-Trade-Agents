@@ -20,5 +20,6 @@ data/
 .pytest_cache/
 .ruff_cache/
 
-# Node (frontend / MCP inspector)
-node_modules/
+# Editor and assistant settings of whoever works on it
+.vscode/
+.claude/
