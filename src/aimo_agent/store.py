@@ -94,10 +94,12 @@ class Store:
         row = self._db.execute("SELECT body FROM requests WHERE id = ?", (request_id,)).fetchone()
         return PurchaseRequest.model_validate_json(row[0]) if row else None
 
-    def list_requests(self, limit: int = 30) -> list[PurchaseRequest]:
-        """The latest requests, newest first."""
+    def list_requests(self, limit: int = 30, buyer_id: str | None = None) -> list[PurchaseRequest]:
+        """The latest requests, newest first; one buyer's only when `buyer_id` is given."""
+        where, values = ("WHERE buyer_id = ? ", [buyer_id]) if buyer_id else ("", [])
         rows = self._db.execute(
-            "SELECT body FROM requests ORDER BY created_at DESC, id DESC LIMIT ?", (limit,)
+            f"SELECT body FROM requests {where}ORDER BY created_at DESC, id DESC LIMIT ?",
+            [*values, limit],
         ).fetchall()
         return [PurchaseRequest.model_validate_json(row[0]) for row in rows]
 

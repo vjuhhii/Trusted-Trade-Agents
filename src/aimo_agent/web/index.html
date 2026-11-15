@@ -188,6 +188,7 @@ const UNIT = { L: "L", KG: "kg", SALES_UNIT: "units" };
 let selected = null;          // request id shown in the middle column
 let keys = [];                // the wholesaler's published signing keys
 let scenarios = [];
+let people = [];  // the demo's approvers and their keys
 const tampered = new Set();   // "PR-0001/opt-1" whose shown price was altered on the way
 let lastRender = "";
 let busy = false;
@@ -367,7 +368,10 @@ function renderLists(requests, orders, mandates) {
       ${toggle("allow_substitutes", `Substitutes, up to +${m.substitute_max_price_increase_pct}% in price`)}
       ${toggle("allow_partial", "Partial quantity")}
       ${toggle("allow_late", "Delivery after the requested date")}
-      <div class="field"><span class="small muted">Above these limits: ${esc(m.approvers.join(" or "))}.
+      <div class="field"><span class="small muted">Above these limits: ${people
+          .filter((p) => p.agent_id === agent.agent_id)
+          .map((p) => `<a href="${esc(p.link)}" title="Open the kitchen view as ${esc(p.name)}">${esc(p.name)}</a>`)
+          .join(" or ") || esc(m.approvers.join(" or "))}, each with a personal key.
         Dietary rules can never be approved away.</span>
         <button class="primary" id="save-mandate">Save</button></div>`;
   }
@@ -389,8 +393,9 @@ function renderLists(requests, orders, mandates) {
         : `<div class="small">${esc(o.option.title)}</div>`}
       <div class="small muted" style="margin-top:4px">${esc(o.status_reason)}</div>
       <div class="actions">
-        <select aria-label="Approver" data-approver="${esc(o.id)}">${(o.approvers.length ? o.approvers : ["Approver"])
-          .map((a) => `<option>${esc(a)}</option>`).join("")}</select>
+        <select aria-label="Approver" data-approver="${esc(o.id)}">${people
+          .filter((p) => p.buyer_id === o.buyer_id && o.approvers.includes(p.name))
+          .map((p) => `<option value="${esc(p.key)}">${esc(p.name)}</option>`).join("")}</select>
         <input aria-label="Comment" placeholder="Comment" data-comment="${esc(o.id)}">
         <button class="approve" data-decide="${esc(o.id)}" data-approved="true">Approve</button>
         <button class="reject" data-decide="${esc(o.id)}" data-approved="false">Reject</button>
@@ -460,18 +465,23 @@ document.addEventListener("click", async (event) => {
         `/demo/scenarios/${encodeURIComponent(data.run)}?fresh=${fresh}`, { method: "POST" });
       selected = (results.find((r) => r.basket_id) || results[results.length - 1]).request_id;
     } else if (data.decide) {
+      // The decision is signed with the chosen person's key; the gateway checks it is theirs to make.
+      const approverKey = document.querySelector(`[data-approver="${data.decide}"]`).value;
       await api(`/v1/desk/orders/${encodeURIComponent(data.decide)}/decision`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${approverKey}` },
         body: JSON.stringify({
-          approver: document.querySelector(`[data-approver="${data.decide}"]`).value,
           approved: data.approved === "true",
           comment: document.querySelector(`[data-comment="${data.decide}"]`).value || null }) });
     } else if (button.id === "save-mandate") {
       const change = { max_autonomous_spend: Number($("limit").value) };
       for (const box of document.querySelectorAll("[data-mandate]")) change[box.dataset.mandate] = box.checked;
       const agent = (await api("/v1/desk/mandates"))[0];
+      const owner = people.find((p) => p.agent_id === agent.agent_id);
       await api(`/v1/desk/mandates/${encodeURIComponent(agent.agent_id)}`, {
-        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(change) });
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${owner?.key}` },
+        body: JSON.stringify(change) });
     } else if (button.id === "reset") {
       if (!confirm("Empty all requests, orders and the audit log?")) return;
       await api("/demo/reset", { method: "POST" });
@@ -486,8 +496,9 @@ document.addEventListener("click", async (event) => {
 });
 
 (async () => {
-  [scenarios, keys] = await Promise.all([
+  [scenarios, people, keys] = await Promise.all([
     api("/demo/scenarios"),
+    api("/demo/approvers").catch(() => []),
     api("/.well-known/jwks.json").then((set) => set.keys).catch(() => [])]);
   refresh(true);
   setInterval(refresh, 2000);

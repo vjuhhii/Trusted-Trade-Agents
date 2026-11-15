@@ -15,12 +15,13 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
-from aimo_agent.agents import get_agents, update_mandate
+from aimo_agent.agents import get_agents, get_approvers, update_mandate
 from aimo_agent.catalog import Product, SearchFilters, SearchResult
 from aimo_agent.config import settings
 from aimo_agent.mcp_server import mcp
 from aimo_agent.models import (
     AgentIdentity,
+    Approver,
     AuditEvent,
     Basket,
     BasketItem,
@@ -55,8 +56,10 @@ whatever exceeds the agent's mandate.
 The same operations are available as MCP tools at `/mcp` (Streamable HTTP).
 
 Errors follow RFC 9457 (`application/problem+json`). Agent endpoints need
-`Authorization: Bearer <agent token>`. The approval desk is unauthenticated in this prototype;
-in production it sits behind the buyer's own sign-in.
+`Authorization: Bearer <agent token>`. Deciding an order or changing a mandate needs the personal
+key of a person the buyer named as approver (`Authorization: Bearer <approver key>`): the gateway
+records who decided from the key, never from a name sent with the request. In production the key
+is the buyer's own sign-in.
 """
 
 
@@ -94,6 +97,25 @@ def current_agent(
 
 Agent = Annotated[AgentIdentity, Depends(current_agent)]
 
+approver_key = HTTPBearer(
+    auto_error=False,
+    scheme_name="ApproverKey",
+    description="Personal key of a person the buyer named to approve. In production: the "
+    "buyer's own sign-in",
+)
+
+
+def current_approver(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(approver_key)],
+) -> Approver:
+    approver = get_approvers().get(credentials.credentials) if credentials else None
+    if approver is None:
+        raise ServiceError("unauthorized", "Missing or unknown approver key.", 401)
+    return approver
+
+
+Person = Annotated[Approver, Depends(current_approver)]
+
 
 @app.exception_handler(ServiceError)
 async def problem_details(_: Request, error: ServiceError) -> JSONResponse:
@@ -125,7 +147,8 @@ class OrderRequest(BaseModel):
 
 
 class ApprovalDecision(BaseModel):
-    approver: str = Field(min_length=1)
+    """Who decides is not part of the decision: it is the person the approver key belongs to."""
+
     approved: bool
     comment: str | None = None
 
@@ -240,23 +263,42 @@ def read_basket(basket_id: str, service: Service, agent: Agent) -> Basket:
 # Approval desk
 
 
+@app.get("/v1/desk/me", tags=["Approval desk"], summary="Who this approver key belongs to")
+def desk_me(person: Person) -> Approver:
+    return person
+
+
 @app.get("/v1/desk/orders", tags=["Approval desk"], summary="Orders, newest first")
 def desk_orders(
     service: Service,
     status: Literal["confirmed", "pending_approval", "rejected", "denied", "expired"] | None = None,
+    buyer_id: str | None = None,
 ) -> list[Order]:
-    return service.store.list_orders(status=status)
+    return service.store.list_orders(status=status, buyer_id=buyer_id)
 
 
 @app.post(
-    "/v1/desk/orders/{order_id}/decision", tags=["Approval desk"], summary="Approve or reject"
+    "/v1/desk/orders/{order_id}/decision",
+    tags=["Approval desk"],
+    summary="Approve or reject, as one of the people the buyer named",
 )
-async def desk_decide(order_id: str, decision: ApprovalDecision, service: Service) -> Order:
+async def desk_decide(
+    order_id: str, decision: ApprovalDecision, service: Service, person: Person
+) -> Order:
+    order = service.store.get_order(order_id)
+    if order is None:
+        raise ServiceError("not_found", f"No order {order_id!r}.", 404)
+    if order.buyer_id != person.buyer_id:
+        raise ServiceError("forbidden", f"{order_id} belongs to another buyer.", 403)
+    if person.name not in order.approvers:
+        raise ServiceError(
+            "forbidden",
+            f"{person.name} is not among those who may approve {order_id}: "
+            f"{', '.join(order.approvers) or 'nobody'}.",
+            403,
+        )
     return await service.decide(
-        order_id,
-        approver=decision.approver,
-        approved=decision.approved,
-        comment=decision.comment,
+        order_id, approver=person.name, approved=decision.approved, comment=decision.comment
     )
 
 
@@ -280,9 +322,11 @@ def desk_audit_verify(service: Service) -> ChainStatus:
 
 @app.get("/v1/desk/requests", tags=["Approval desk"], summary="Requests, newest first")
 def desk_requests(
-    service: Service, limit: Annotated[int, Query(ge=1, le=100)] = 30
+    service: Service,
+    limit: Annotated[int, Query(ge=1, le=100)] = 30,
+    buyer_id: str | None = None,
 ) -> list[PurchaseRequest]:
-    return service.store.list_requests(limit)
+    return service.store.list_requests(limit, buyer_id=buyer_id)
 
 
 class MandateChange(BaseModel):
@@ -299,24 +343,49 @@ def desk_mandates() -> list[AgentIdentity]:
 
 
 @app.patch(
-    "/v1/desk/mandates/{agent_id}", tags=["Approval desk"], summary="Change an agent's mandate"
+    "/v1/desk/mandates/{agent_id}",
+    tags=["Approval desk"],
+    summary="Change an agent's mandate, as one of the people its buyer named",
 )
-def desk_change_mandate(agent_id: str, change: MandateChange, service: Service) -> AgentIdentity:
+def desk_change_mandate(
+    agent_id: str, change: MandateChange, service: Service, person: Person
+) -> AgentIdentity:
+    if agent_id not in {agent.agent_id for agent in get_agents().values()}:
+        raise ServiceError("not_found", f"No agent {agent_id!r}.", 404)
+    if person.agent_id != agent_id:
+        raise ServiceError("forbidden", f"{person.name} does not decide for {agent_id}.", 403)
     changes = change.model_dump(exclude_none=True)
     agent = update_mandate(agent_id, changes)
     if agent is None:
         raise ServiceError("not_found", f"No agent {agent_id!r}.", 404)
     listed = ", ".join(f"{name} = {value}" for name, value in changes.items()) or "nothing"
     service.store.add_event(
-        "human:Buyer administrator",
+        f"human:{person.name}",
         "mandate.changed",
-        f"The mandate of {agent.agent_name} was changed: {listed}.",
+        f"{person.name} changed the mandate of {agent.agent_name}: {listed}.",
         detail={"agent_id": agent_id, "changes": changes},
     )
     return agent
 
 
 # Demo
+
+
+class DemoApprover(Approver):
+    key: str
+    link: str = Field(description="The kitchen view, signed in as this person")
+
+
+@app.get(
+    "/demo/approvers",
+    tags=["Demo"],
+    summary="The demo's approvers and their keys. A real gateway has no such list",
+)
+def demo_approvers() -> list[DemoApprover]:
+    return [
+        DemoApprover(**person.model_dump(), key=key, link=f"/?key={key}")
+        for key, person in get_approvers().items()
+    ]
 
 
 @app.get("/demo/scenarios", tags=["Demo"], summary="Ready-made purchases for the console")

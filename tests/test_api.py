@@ -8,10 +8,11 @@ from fastapi.testclient import TestClient
 from aimo_agent import agents
 from aimo_agent.app import app
 from aimo_agent.config import settings
-from aimo_agent.models import AgentIdentity
+from aimo_agent.models import AgentIdentity, Approver
 from aimo_agent.service import PurchasingService, get_service
 
 HOTEL = {"Authorization": "Bearer hotel-token"}
+CHEF = {"Authorization": "Bearer chef-key"}
 SCHOOL = {"Authorization": "Bearer school-token"}
 MILK = {
     "text": "I need lactose-free milk by Monday.",
@@ -34,6 +35,18 @@ def client(
     registry = {"hotel-token": hotel, "school-token": school}
     monkeypatch.setattr(agents, "get_agents", lambda: registry)
     monkeypatch.setattr("aimo_agent.app.get_agents", lambda: registry)
+    people = {
+        "chef-key": Approver(
+            name="Head chef", agent_id="hotel-agent", buyer_id="B1", buyer_name="Hotel"
+        ),
+        "porter-key": Approver(
+            name="Porter", agent_id="hotel-agent", buyer_id="B1", buyer_name="Hotel"
+        ),
+        "manager-key": Approver(
+            name="Kitchen manager", agent_id="school-agent", buyer_id="B2", buyer_name="School"
+        ),
+    }
+    monkeypatch.setattr("aimo_agent.app.get_approvers", lambda: people)
     app.dependency_overrides[get_service] = lambda: service
     yield TestClient(app)
     app.dependency_overrides.clear()
@@ -93,9 +106,11 @@ def test_request_order_approve_flow_over_http(client: TestClient) -> None:
 
     decision = client.post(
         f"/v1/desk/orders/{order_id}/decision",
-        json={"approver": "Head chef", "approved": True, "comment": "Fine"},
+        json={"approved": True, "comment": "Fine"},
+        headers=CHEF,
     )
     assert decision.json()["status"] == "confirmed"
+    assert decision.json()["approval"]["approver"] == "Head chef"  # from the key, not a claim
     assert client.get(f"/v1/orders/{order_id}", headers=HOTEL).json()["status"] == "confirmed"
 
     trail = client.get(f"/v1/orders/{order_id}/audit", headers=HOTEL).json()
@@ -124,9 +139,7 @@ def test_basket_flow_over_http_takes_three_calls(client: TestClient) -> None:
 
     # One decision on any order of the basket decides all of it.
     first = body["orders"][0]["id"]
-    client.post(
-        f"/v1/desk/orders/{first}/decision", json={"approver": "Head chef", "approved": True}
-    )
+    client.post(f"/v1/desk/orders/{first}/decision", json={"approved": True}, headers=CHEF)
     after = client.get("/v1/baskets/BK-0001", headers=HOTEL).json()
     assert [o["status"] for o in after["orders"]] == ["confirmed", "confirmed"]
     assert client.get("/v1/baskets/BK-0001", headers=SCHOOL).status_code == 404
@@ -216,18 +229,26 @@ def test_mandate_change_is_stored_logged_and_seen_at_once(
         agent = desk.get("/v1/desk/mandates").json()[0]
         assert agent["mandate"]["max_autonomous_spend"] == 1000
 
-        changed = desk.patch(
-            f"/v1/desk/mandates/{agent['agent_id']}",
-            json={"max_autonomous_spend": 1200, "allow_late": True},
-        )
+        url = f"/v1/desk/mandates/{agent['agent_id']}"
+        change = {"max_autonomous_spend": 1200, "allow_late": True}
+        assert desk.patch(url, json=change).status_code == 401
+        school = {"Authorization": "Bearer demo-kitchen-manager"}
+        assert desk.patch(url, json=change, headers=school).status_code == 403
+
+        changed = desk.patch(url, json=change, headers={"Authorization": "Bearer demo-head-chef"})
 
         assert changed.json()["mandate"]["max_autonomous_spend"] == 1200
         assert desk.get("/v1/desk/mandates").json()[0]["mandate"]["allow_late"] is True
         assert "demo-nordic-hotels-agent" in registry.read_text("utf-8")  # tokens are kept
         (event,) = desk.get("/v1/desk/audit").json()
         assert event["type"] == "mandate.changed"
+        assert event["actor"] == "human:Head chef"
         assert "max_autonomous_spend = 1200" in event["summary"]
-        assert desk.patch("/v1/desk/mandates/nobody", json={}).status_code == 404
+        assert "demo-head-chef" not in str(
+            desk.get("/v1/desk/mandates").json()
+        )  # keys stay private
+        chef = {"Authorization": "Bearer demo-head-chef"}
+        assert desk.patch("/v1/desk/mandates/nobody", json={}, headers=chef).status_code == 404
     finally:
         app.dependency_overrides.clear()
 
@@ -246,3 +267,44 @@ def test_the_kitchen_view_can_be_added_to_a_home_screen(client: TestClient) -> N
     assert '<link rel="manifest" href="/assets/manifest.webmanifest">' in client.get("/").text
     assert client.get("/assets/..%2Fapp.py").status_code == 404
     assert client.get("/assets/kitchen.html").status_code == 404
+
+
+def test_only_a_person_the_buyer_named_can_approve(client: TestClient) -> None:
+    request = client.post("/v1/requests", json=MILK, headers=HOTEL).json()
+    order = client.post(
+        "/v1/orders", json={"request_id": request["id"], "option_id": "opt-1"}, headers=HOTEL
+    ).json()
+    url = f"/v1/desk/orders/{order['id']}/decision"
+
+    no_key = client.post(url, json={"approved": True})
+    assert (no_key.status_code, no_key.json()["title"]) == (401, "Unauthorized")
+    assert (
+        client.post(url, json={"approved": True}, headers={"Authorization": "Bearer x"}).status_code
+        == 401
+    )
+    other_buyer = client.post(
+        url, json={"approved": True}, headers={"Authorization": "Bearer manager-key"}
+    )
+    assert (other_buyer.status_code, other_buyer.json()["detail"]) == (
+        403,
+        f"{order['id']} belongs to another buyer.",
+    )
+    not_named = client.post(
+        url, json={"approved": True}, headers={"Authorization": "Bearer porter-key"}
+    )
+    assert not_named.status_code == 403
+    assert "Porter is not among those who may approve" in not_named.json()["detail"]
+    assert (
+        client.get(f"/v1/orders/{order['id']}", headers=HOTEL).json()["status"]
+        == "pending_approval"
+    )
+
+    assert client.get("/v1/desk/me", headers=CHEF).json()["name"] == "Head chef"
+    assert client.get("/v1/desk/me").status_code == 401
+    assert [o["buyer_id"] for o in client.get("/v1/desk/orders?buyer_id=B2").json()] == []
+    assert len(client.get("/v1/desk/requests?buyer_id=B1").json()) == 1
+    assert {p["key"] for p in client.get("/demo/approvers").json()} == {
+        "chef-key",
+        "porter-key",
+        "manager-key",
+    }

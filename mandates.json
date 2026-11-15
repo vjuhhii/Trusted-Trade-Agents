@@ -1,6 +1,10 @@
 [
   {
     "token": "demo-nordic-hotels-agent",
+    "approver_keys": {
+      "demo-head-chef": "Head chef",
+      "demo-purchasing-manager": "Purchasing manager"
+    },
     "agent_id": "nordic-hotels-purchasing-1",
     "agent_name": "Nordic Hotels purchasing agent",
     "buyer_id": "100234",
@@ -21,6 +25,9 @@
   },
   {
     "token": "demo-school-kitchen-agent",
+    "approver_keys": {
+      "demo-kitchen-manager": "Kitchen manager"
+    },
     "agent_id": "espoo-schools-purchasing-1",
     "agent_name": "Espoo school kitchens purchasing agent",
     "buyer_id": "100871",

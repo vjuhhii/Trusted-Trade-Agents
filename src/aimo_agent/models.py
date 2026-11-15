@@ -343,6 +343,15 @@ class Mandate(BaseModel):
     approvers: list[str] = Field(default_factory=list)
 
 
+class Approver(BaseModel):
+    """A person the buyer named to decide what its agent may not decide alone."""
+
+    name: str
+    agent_id: str = Field(description="The agent whose orders and rules this person decides")
+    buyer_id: str
+    buyer_name: str
+
+
 class AgentIdentity(BaseModel):
     agent_id: str
     agent_name: str

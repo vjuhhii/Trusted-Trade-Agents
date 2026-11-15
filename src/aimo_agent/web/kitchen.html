@@ -119,6 +119,13 @@
            background: var(--panel); color: var(--text); }
   footer { margin-top: 30px; text-align: center; font-size: 14px; color: var(--muted); }
   footer a { color: var(--accent); }
+  .link { min-height: 0; padding: 0; border: 0; background: none; color: var(--accent);
+          font-size: inherit; font-weight: 600; text-decoration: underline; }
+  .people { display: grid; gap: 10px; margin-top: 14px; }
+  .tabs[hidden] { display: none; }
+  .people button { text-align: left; padding: 12px 16px; background: var(--panel);
+                   color: var(--text); border-color: var(--line); }
+  .people small { display: block; font-weight: 400; color: var(--muted); font-size: 14px; }
   #saved { color: var(--ok); font-weight: 650; visibility: hidden; margin-left: 8px;
            text-transform: none; letter-spacing: 0; }
   .tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 2; display: flex;
@@ -148,8 +155,18 @@
   <header>
     <div class="hello" id="buyer">Your kitchen</div>
     <h1>Your purchasing assistant</h1>
-    <label class="me">I am <select id="me" aria-label="Who is deciding"></select></label>
+    <div class="me" id="who"></div>
   </header>
+
+  <section id="signin" hidden>
+    <div class="card">
+      <p class="what">Who is deciding?</p>
+      <p class="sub" style="margin:6px 0 0">Only the people your kitchen named can say yes to
+        an order or change the rules. In this demo, pick one. In real life this is your own
+        sign-in, and nobody else can decide in your name.</p>
+      <div class="people" id="people"></div>
+    </div>
+  </section>
 
   <section id="tab-orders" role="tabpanel" aria-labelledby="t-orders">
     <div id="asks"></div>
@@ -207,13 +224,27 @@ const plain = (text) => String(text)
   .replace(/^Needs human approval: /, "").replace(/^Refused by the rules: /, "");
 const lower = (text) => text.charAt(0).toLowerCase() + text.slice(1);
 
-let me = null;
 let lastState = "";
 let saving = false;
 let waitingBefore = null;
 
-async function api(path, options) {
-  const response = await fetch(path, options);
+// Who is deciding: a personal key, from the link the kitchen was given, kept on this device.
+const KEY = "aimo-approver-key";
+const remember = (key) => {
+  try { key ? localStorage.setItem(KEY, key) : localStorage.removeItem(KEY); } catch (error) { /* private mode */ }
+};
+let key = new URLSearchParams(location.search).get("key");
+if (key) {
+  remember(key);
+  history.replaceState(null, "", location.pathname + location.hash);
+} else {
+  try { key = localStorage.getItem(KEY); } catch (error) { key = null; }
+}
+let person = null;
+
+async function api(path, options = {}) {
+  const headers = { ...(options.headers || {}), ...(key ? { Authorization: `Bearer ${key}` } : {}) };
+  const response = await fetch(path, { ...options, headers });
   const body = await response.json();
   if (!response.ok) throw new Error(body.detail || response.statusText);
   return body;
@@ -430,9 +461,6 @@ function render(orders, requests, agent) {
   }
   const mandate = agent.mandate;
   $("buyer").textContent = agent.buyer_name;
-  const people = mandate.approvers.length ? mandate.approvers : ["The kitchen"];
-  if (!people.includes(me)) me = people[0];
-  $("me").innerHTML = people.map((p) => `<option ${p === me ? "selected" : ""}>${esc(p)}</option>`).join("");
 
   const limit = mandate.max_autonomous_spend;
   const grouped = groups(orders);
@@ -510,23 +538,48 @@ function showTab(tab) {
 }
 
 async function refresh(force = false) {
+  if (!person) return;
   try {
+    const buyer = encodeURIComponent(person.buyer_id);
     const [orders, requests, agents] = await Promise.all([
-      api("/v1/desk/orders"), api("/v1/desk/requests"), api("/v1/desk/mandates")]);
-    const state = JSON.stringify([orders, requests, agents[0]]);
+      api(`/v1/desk/orders?buyer_id=${buyer}`), api(`/v1/desk/requests?buyer_id=${buyer}`),
+      api("/v1/desk/mandates")]);
+    const agent = agents.find((a) => a.agent_id === person.agent_id);
+    const state = JSON.stringify([orders, requests, agent]);
     const busy = saving || ["INPUT", "SELECT"].includes(document.activeElement?.tagName);
-    if (force || (state !== lastState && !busy)) {
+    if (agent && (force || (state !== lastState && !busy))) {
       lastState = state;
-      render(orders, requests, agents[0]);
+      render(orders, requests, agent);
     }
   } catch (error) { /* keep the last picture; the next poll tries again */ }
+}
+
+// Signed in: the page of that person's kitchen. Not signed in: who is deciding?
+async function signIn() {
+  person = null;
+  if (key) {
+    try { person = await api("/v1/desk/me"); } catch (error) { key = null; remember(null); }
+  }
+  $("signin").hidden = Boolean(person);
+  document.querySelector(".tabs").hidden = !person;
+  $("who").innerHTML = person
+    ? `Signed in as <b>${esc(person.name)}</b> · <button class="link" id="switch">Switch</button>` : "";
+  if (person) {
+    lastState = "";
+    showTab(location.hash === "#rules" ? "rules" : "orders");
+    return refresh(true);
+  }
+  for (const name of ["orders", "rules"]) $(`tab-${name}`).hidden = true;
+  $("buyer").textContent = "Your kitchen";
+  const people = await api("/demo/approvers").catch(() => []);
+  $("people").innerHTML = people.map((p) => `<button data-person="${esc(p.key)}">${esc(p.name)}
+    <small>${esc(p.buyer_name)}</small></button>`).join("");
 }
 
 async function saveRules(change) {
   saving = true;
   try {
-    const agent = (await api("/v1/desk/mandates"))[0];
-    await api(`/v1/desk/mandates/${encodeURIComponent(agent.agent_id)}`, {
+    await api(`/v1/desk/mandates/${encodeURIComponent(person.agent_id)}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(change) });
     $("saved").style.visibility = "visible";
     setTimeout(() => { $("saved").style.visibility = "hidden"; }, 1800);
@@ -544,7 +597,7 @@ async function decide(button) {
   try {
     const order = await api(`/v1/desk/orders/${encodeURIComponent(button.dataset.decide)}/decision`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ approver: me, approved }) });
+      body: JSON.stringify({ approved }) });
     toast(order.status === "confirmed" ? `Ordered. It arrives ${dayOf(order.option.delivery_date)}.`
       : order.status === "expired" ? "Too late: the offer changed. Ask your assistant again."
       : "Not ordered. Your assistant will know.");
@@ -556,6 +609,8 @@ document.addEventListener("click", (event) => {
   const button = event.target.closest("button");
   if (!button) return;
   if (button.dataset.tab) return showTab(button.dataset.tab);
+  if (button.dataset.person) { key = button.dataset.person; remember(key); return signIn(); }
+  if (button.id === "switch") { key = null; remember(null); return signIn(); }
   if (button.dataset.step) {
     const next = Math.max(0, Number($("limit").value) + Number(button.dataset.step));
     $("limit").value = next;
@@ -565,8 +620,7 @@ document.addEventListener("click", (event) => {
 });
 document.addEventListener("change", (event) => {
   const target = event.target;
-  if (target.id === "me") { me = target.value; target.blur(); }
-  else if (target.id === "limit") saveRules({ max_autonomous_spend: Math.max(1, Number(target.value)) });
+  if (target.id === "limit") saveRules({ max_autonomous_spend: Math.max(1, Number(target.value)) });
   else if (target.dataset.rule) saveRules({ [target.dataset.rule]: target.checked });
 });
 
@@ -580,8 +634,7 @@ new MutationObserver(() => {
   for (const box of document.querySelectorAll("details[data-key]")) box.open = opened.has(box.dataset.key);
 }).observe(document.querySelector("main"), { childList: true, subtree: true });
 
-showTab(location.hash === "#rules" ? "rules" : "orders");
-refresh(true);
+signIn();
 setInterval(refresh, 2000);
 </script>
 </body>

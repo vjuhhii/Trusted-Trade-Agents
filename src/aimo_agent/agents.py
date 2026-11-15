@@ -11,22 +11,25 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from pydantic import TypeAdapter
+from pydantic import Field, TypeAdapter
 
 from aimo_agent.config import settings
-from aimo_agent.models import AgentIdentity, Mandate
+from aimo_agent.models import AgentIdentity, Approver, Mandate
 
 
 class AgentRecord(AgentIdentity):
     token: str
+    # Personal key -> name of a person who may approve for this buyer. Never shown to the agent.
+    approver_keys: dict[str, str] = Field(default_factory=dict)
 
 
 _records = TypeAdapter(list[AgentRecord])
+_PRIVATE = {"token", "approver_keys"}
 
 
 def load_agents(path: Path) -> dict[str, AgentIdentity]:
     return {
-        record.token: AgentIdentity(**record.model_dump(exclude={"token"}))
+        record.token: AgentIdentity(**record.model_dump(exclude=_PRIVATE))
         for record in _records.validate_json(path.read_bytes())
     }
 
@@ -46,6 +49,28 @@ def get_agents() -> dict[str, AgentIdentity]:
     if _cache is None or _cache[0] != modified:
         _cache = (modified, load_agents(path))
     return _cache[1]
+
+
+def get_approvers() -> dict[str, Approver]:
+    """The people who may decide for each buyer, by their personal key.
+
+    A working copy made before approver keys existed takes them from the repository defaults.
+    """
+    records = _records.validate_json(_working_copy().read_bytes())
+    defaults = {
+        record.agent_id: record.approver_keys
+        for record in _records.validate_json(settings.aimo_agents_defaults.read_bytes())
+    }
+    return {
+        key: Approver(
+            name=name,
+            agent_id=record.agent_id,
+            buyer_id=record.buyer_id,
+            buyer_name=record.buyer_name,
+        )
+        for record in records
+        for key, name in (record.approver_keys or defaults.get(record.agent_id, {})).items()
+    }
 
 
 def _working_copy() -> Path:
@@ -68,4 +93,4 @@ def update_mandate(agent_id: str, changes: dict[str, Any]) -> AgentIdentity | No
     path.write_text(
         json.dumps([r.model_dump(mode="json") for r in records], indent=2) + "\n", encoding="utf-8"
     )
-    return AgentIdentity(**record.model_dump(exclude={"token"}))
+    return AgentIdentity(**record.model_dump(exclude=_PRIVATE))

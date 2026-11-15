@@ -174,6 +174,13 @@ a human approved does not use up the agent's own budget. This rule came out of t
 real LLM agent: it volunteered that it would not split the order, which showed the gateway was
 relying on the agent's good manners.
 
+**A human's yes is checked as strictly as the agent.** Approving an order or changing the rules
+takes the personal key of a person the buyer named, the same way an agent needs its token. The
+gateway takes who decided from the key, not from a name sent along with the request, refuses
+anyone not named for that buyer, and writes the verified name into the audit trail. The kitchen
+view opens from a personal link and shows only that buyer's orders and rules; the agent never
+sees any approver key.
+
 Every option carries the verdict *before* the agent orders (`policy.decision` and one sentence
 per rule), so an agent can tell its user "this will need the head chef" up front. Two demo
 mandates are configured: a hotel kitchen (1 000 € per delivery day, substitutes allowed) and
@@ -280,7 +287,8 @@ No proprietary format sits between the agent and the wholesaler.
 - Category codes have no names in the dataset; agents are given example product names per
   category instead.
 - Prices are per customer in reality. The mock ignores the customer number, and so do we.
-- The approval desk has no sign-in. The approver's name is taken as entered.
+- Approvers sign in with a personal key from a link (`/?key=demo-head-chef`). The keys are
+  static demo values in `mandates.json`; reading orders on the desk needs no key.
 - Product data quality varies. Where a dietary declaration is missing, the product is treated
   as not suitable.
 
@@ -295,8 +303,9 @@ No proprietary format sits between the agent and the wholesaler.
    mandate work (AP2, x402). Key rotation and revocation come with it.
 3. **Order documents:** emit confirmed orders as Peppol BIS (UBL) so they land in existing
    procurement and ERP systems.
-4. **Approvals where people are:** push approval requests to the buyer's own tools behind their
-   sign-in, with expiry tied to the order cut-off.
+4. **Approvals where people are:** replace the demo approver keys with the buyer's own sign-in
+   (OpenID Connect), and push approval requests to the tools the kitchen already uses, with
+   expiry tied to the order cut-off.
 5. **Real reservation and pricing:** customer-specific prices and stock reservation in the
    wholesaler's order system instead of the local store.
 6. **Beyond single orders:** recipe-level needs, standing-order drift detection and a selling
