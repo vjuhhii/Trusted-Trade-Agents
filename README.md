@@ -266,14 +266,15 @@ it).
 | Used for | Standard | Why |
 |---|---|---|
 | Agent interface | Model Context Protocol (stdio and Streamable HTTP) | Vendor-neutral tool interface; any MCP host can connect without custom code. |
-| API interface | OpenAPI 3.1, JSON Schema | Machine-readable contract at `/openapi.json`; the MCP tools and REST share one schema. |
+| API interface | OpenAPI 3.1, JSON Schema | Machine-readable contract at `/openapi.json`, published as [docs/openapi.json](docs/openapi.json) with the MCP tools in [docs/mcp-tools.md](docs/mcp-tools.md); the MCP tools and REST share one schema. |
 | Errors | RFC 9457 Problem Details | Errors an agent can branch on (`offer_changed`, `already_ordered`). |
 | Identifiers | GS1 GTIN, GS1 allergen codes, ISO 3166, ISO 8601, ISO 4217 | Reuses what the product data (GS1 Synkka) already carries. |
-| Agent identity | Bearer tokens (RFC 6750) | The smallest thing that works; see next steps. |
+| Agent and approver identity | Bearer tokens (RFC 6750) | The smallest thing that works; see next steps. |
 | Signed offers | JWS (RFC 7515) with EdDSA / Ed25519 (RFC 8037), keys as a JWK Set (RFC 7517) | Verifiable with any JWT library; the same building blocks as W3C Verifiable Credentials. |
 | Tamper evidence | SHA-256 hash chain | Verifiable without trusting the party that stores the log. |
 
-No proprietary format sits between the agent and the wholesaler.
+No proprietary format sits between the agent and the wholesaler. The published contract is
+generated from the code, and a test fails if the two drift apart.
 
 ## Assumptions
 
@@ -329,16 +330,22 @@ src/aimo_agent/
   web/index.html   the trade console (one page, no build step)
   scenarios.py     ready-made purchases the console runs
   mcp_server.py    MCP tools
+  contract.py      writes the published contract to docs/
   demo_agent.py    scripted buyer agent (MCP client)
   evaluate.py      matching-precision benchmark
 evaluation/        benchmark cases and the latest results
 mandates.json      agents, buyers and their mandates: defaults (in use: data/mandates.json)
 docs/challenge.md  the challenge brief and judging criteria
+docs/openapi.json  the REST contract (OpenAPI 3.1), generated
+docs/mcp-tools.md  the MCP tools and the instructions agents receive, generated
 ```
 
 ## Development
 
 ```bash
-uv run pytest                                # tests
+uv run pytest                                # tests: no challenge data or API key needed
 uv run ruff check . && uv run ruff format .  # lint and format
+uv run python -m aimo_agent.contract         # regenerate docs/openapi.json and docs/mcp-tools.md
 ```
+
+GitHub Actions runs the lint and the tests on every push (`.github/workflows/ci.yml`).

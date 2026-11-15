@@ -1,0 +1,3544 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Aimo Agent Gateway",
+    "description": "\nAn open interface through which an external purchasing agent works with a food-service\nwholesaler: look up products, get fixed-price offers, place an order, and have a human approve\nwhatever exceeds the agent's mandate.\n\n**The flow**\n\n1. `GET /v1/mandate`: what this agent may decide on its own.\n2. `GET /v1/products`: search the static catalog (no rate-limited calls behind it).\n3. `POST /v1/requests`: state a need; the answer is a ranked list of orderable options, each\n   with the mandate's verdict (`auto_approve`, `needs_approval` or `deny`).\n4. `POST /v1/orders`: commit to one option. The order is `confirmed`, or held as\n   `pending_approval` until a human decides at the approval desk.\n5. `GET /v1/orders/{id}/audit`: the human-readable record of what happened and why.\n\nThe same operations are available as MCP tools at `/mcp` (Streamable HTTP).\n\nErrors follow RFC 9457 (`application/problem+json`). Agent endpoints need\n`Authorization: Bearer <agent token>`. Deciding an order or changing a mandate needs the personal\nkey of a person the buyer named as approver (`Authorization: Bearer <approver key>`): the gateway\nrecords who decided from the key, never from a name sent with the request. In production the key\nis the buyer's own sign-in.\n",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/v1/mandate": {
+      "get": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Who the agent acts for and what it may decide",
+        "operationId": "read_mandate_v1_mandate_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentIdentity"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/products": {
+      "get": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Search the catalog",
+        "operationId": "search_products_v1_products_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Words that must all appear in the product name or brand",
+              "default": "",
+              "title": "Query"
+            },
+            "description": "Words that must all appear in the product name or brand"
+          },
+          {
+            "name": "exclude_terms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Words that must not appear in the product name",
+              "title": "Exclude Terms"
+            },
+            "description": "Words that must not appear in the product name"
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Restrict to one category code",
+              "title": "Category"
+            },
+            "description": "Restrict to one category code"
+          },
+          {
+            "name": "free_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Substances the product must be declared free from: lactose, gluten, milk, eggs, soy, wheat, nuts, peanuts, fish, crustaceans, molluscs, sesame, celery, mustard, sulphites, lupin",
+              "title": "Free From"
+            },
+            "description": "Substances the product must be declared free from: lactose, gluten, milk, eggs, soy, wheat, nuts, peanuts, fish, crustaceans, molluscs, sesame, celery, mustard, sulphites, lupin"
+          },
+          {
+            "name": "exclude_allergens",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Substances the product must not declare as contained or possibly contained",
+              "title": "Exclude Allergens"
+            },
+            "description": "Substances the product must not declare as contained or possibly contained"
+          },
+          {
+            "name": "labels",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Labels the product must carry, e.g. EU_ORGANIC_FARMING",
+              "title": "Labels"
+            },
+            "description": "Labels the product must carry, e.g. EU_ORGANIC_FARMING"
+          },
+          {
+            "name": "country_of_origin",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "ISO 3166-1 alpha-2, lowercase",
+              "title": "Country Of Origin"
+            },
+            "description": "ISO 3166-1 alpha-2, lowercase"
+          },
+          {
+            "name": "brand",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Brand"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/products/{product_id}": {
+      "get": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "One product",
+        "operationId": "read_product_v1_products__product_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Product"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/offers": {
+      "post": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Live price and availability for chosen products",
+        "operationId": "check_offers_v1_offers_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OfferQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Offer"
+                  },
+                  "type": "array",
+                  "title": "Response Check Offers V1 Offers Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/requests": {
+      "post": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "State a need, get ranked options",
+        "operationId": "create_request_v1_requests_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Need"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurchaseRequest"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/requests/{request_id}": {
+      "get": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "A request and its options",
+        "operationId": "read_request_v1_requests__request_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Request Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurchaseRequest"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/requests/{request_id}/audit": {
+      "get": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Audit trail of a request",
+        "operationId": "read_request_audit_v1_requests__request_id__audit_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Request Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AuditEvent"
+                  },
+                  "title": "Response Read Request Audit V1 Requests  Request Id  Audit Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orders": {
+      "post": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Commit to one option",
+        "operationId": "place_order_v1_orders_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Order"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/orders/{order_id}": {
+      "get": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Order status",
+        "operationId": "read_order_v1_orders__order_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Order Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Order"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orders/{order_id}/audit": {
+      "get": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Audit trail of an order",
+        "operationId": "read_order_audit_v1_orders__order_id__audit_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Order Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AuditEvent"
+                  },
+                  "title": "Response Read Order Audit V1 Orders  Order Id  Audit Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/requests/batch": {
+      "post": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "State several needs at once, e.g. the ingredients of a menu",
+        "operationId": "create_requests_v1_requests_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "items": {
+                  "$ref": "#/components/schemas/Need"
+                },
+                "type": "array",
+                "maxItems": 15,
+                "minItems": 1,
+                "title": "Needs"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PurchaseRequest"
+                  },
+                  "type": "array",
+                  "title": "Response Create Requests V1 Requests Batch Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/baskets": {
+      "post": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Order one option from each of several requests as a whole",
+        "operationId": "place_basket_v1_baskets_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BasketRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Basket"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/baskets/{basket_id}": {
+      "get": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Basket status",
+        "operationId": "read_basket_v1_baskets__basket_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "basket_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Basket Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Basket"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/desk/me": {
+      "get": {
+        "tags": [
+          "Approval desk"
+        ],
+        "summary": "Who this approver key belongs to",
+        "operationId": "desk_me_v1_desk_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Approver"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApproverKey": []
+          }
+        ]
+      }
+    },
+    "/v1/desk/orders": {
+      "get": {
+        "tags": [
+          "Approval desk"
+        ],
+        "summary": "Orders, newest first",
+        "operationId": "desk_orders_v1_desk_orders_get",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "confirmed",
+                    "pending_approval",
+                    "rejected",
+                    "denied",
+                    "expired"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "buyer_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Buyer Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Order"
+                  },
+                  "title": "Response Desk Orders V1 Desk Orders Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/desk/orders/{order_id}/decision": {
+      "post": {
+        "tags": [
+          "Approval desk"
+        ],
+        "summary": "Approve or reject, as one of the people the buyer named",
+        "operationId": "desk_decide_v1_desk_orders__order_id__decision_post",
+        "security": [
+          {
+            "ApproverKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Order Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApprovalDecision"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Order"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/desk/audit": {
+      "get": {
+        "tags": [
+          "Approval desk"
+        ],
+        "summary": "The audit log",
+        "operationId": "desk_audit_v1_desk_audit_get",
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Request Id"
+            }
+          },
+          {
+            "name": "order_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Order Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 1,
+              "default": 200,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AuditEvent"
+                  },
+                  "title": "Response Desk Audit V1 Desk Audit Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/desk/audit/verify": {
+      "get": {
+        "tags": [
+          "Approval desk"
+        ],
+        "summary": "Check the audit log's hash chain",
+        "operationId": "desk_audit_verify_v1_desk_audit_verify_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChainStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/desk/requests": {
+      "get": {
+        "tags": [
+          "Approval desk"
+        ],
+        "summary": "Requests, newest first",
+        "operationId": "desk_requests_v1_desk_requests_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 30,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "buyer_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Buyer Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PurchaseRequest"
+                  },
+                  "title": "Response Desk Requests V1 Desk Requests Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/desk/mandates": {
+      "get": {
+        "tags": [
+          "Approval desk"
+        ],
+        "summary": "Agents and their mandates",
+        "operationId": "desk_mandates_v1_desk_mandates_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AgentIdentity"
+                  },
+                  "type": "array",
+                  "title": "Response Desk Mandates V1 Desk Mandates Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/desk/mandates/{agent_id}": {
+      "patch": {
+        "tags": [
+          "Approval desk"
+        ],
+        "summary": "Change an agent's mandate, as one of the people its buyer named",
+        "operationId": "desk_change_mandate_v1_desk_mandates__agent_id__patch",
+        "security": [
+          {
+            "ApproverKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Agent Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MandateChange"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentIdentity"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/demo/approvers": {
+      "get": {
+        "tags": [
+          "Demo"
+        ],
+        "summary": "The demo's approvers and their keys. A real gateway has no such list",
+        "operationId": "demo_approvers_demo_approvers_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DemoApprover"
+                  },
+                  "type": "array",
+                  "title": "Response Demo Approvers Demo Approvers Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/demo/scenarios": {
+      "get": {
+        "tags": [
+          "Demo"
+        ],
+        "summary": "Ready-made purchases for the console",
+        "operationId": "demo_scenarios_demo_scenarios_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Scenario"
+                  },
+                  "type": "array",
+                  "title": "Response Demo Scenarios Demo Scenarios Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/demo/reset": {
+      "post": {
+        "tags": [
+          "Demo"
+        ],
+        "summary": "Empty orders and the audit log",
+        "operationId": "demo_reset_demo_reset_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        }
+      }
+    },
+    "/demo/scenarios/{scenario_id}": {
+      "post": {
+        "tags": [
+          "Demo"
+        ],
+        "summary": "Run a scripted agent",
+        "operationId": "demo_run_demo_scenarios__scenario_id__post",
+        "parameters": [
+          {
+            "name": "scenario_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scenario Id"
+            }
+          },
+          {
+            "name": "fresh",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Empty the store first, so earlier orders do not use up the budget",
+              "default": true,
+              "title": "Fresh"
+            },
+            "description": "Empty the store first, so earlier orders do not use up the budget"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ScenarioResult"
+                  },
+                  "title": "Response Demo Run Demo Scenarios  Scenario Id  Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/.well-known/jwks.json": {
+      "get": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Public keys for verifying signed offers (JWK Set, RFC 7517)",
+        "operationId": "signing_keys__well_known_jwks_json_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Signing Keys  Well Known Jwks Json Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AgentIdentity": {
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "title": "Agent Id"
+          },
+          "agent_name": {
+            "type": "string",
+            "title": "Agent Name"
+          },
+          "buyer_id": {
+            "type": "string",
+            "title": "Buyer Id"
+          },
+          "buyer_name": {
+            "type": "string",
+            "title": "Buyer Name"
+          },
+          "mandate": {
+            "$ref": "#/components/schemas/Mandate"
+          }
+        },
+        "type": "object",
+        "required": [
+          "agent_id",
+          "agent_name",
+          "buyer_id",
+          "buyer_name",
+          "mandate"
+        ],
+        "title": "AgentIdentity"
+      },
+      "Approval": {
+        "properties": {
+          "approver": {
+            "type": "string",
+            "title": "Approver"
+          },
+          "approved": {
+            "type": "boolean",
+            "title": "Approved"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          },
+          "decided_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Decided At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "approver",
+          "approved",
+          "decided_at"
+        ],
+        "title": "Approval"
+      },
+      "ApprovalDecision": {
+        "properties": {
+          "approved": {
+            "type": "boolean",
+            "title": "Approved"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          }
+        },
+        "type": "object",
+        "required": [
+          "approved"
+        ],
+        "title": "ApprovalDecision",
+        "description": "Who decides is not part of the decision: it is the person the approver key belongs to."
+      },
+      "Approver": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "agent_id": {
+            "type": "string",
+            "title": "Agent Id",
+            "description": "The agent whose orders and rules this person decides"
+          },
+          "buyer_id": {
+            "type": "string",
+            "title": "Buyer Id"
+          },
+          "buyer_name": {
+            "type": "string",
+            "title": "Buyer Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "agent_id",
+          "buyer_id",
+          "buyer_name"
+        ],
+        "title": "Approver",
+        "description": "A person the buyer named to decide what its agent may not decide alone."
+      },
+      "AuditEvent": {
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "actor": {
+            "type": "string",
+            "title": "Actor",
+            "description": "agent:<id>, human:<name> or system"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary",
+            "description": "One human-readable sentence"
+          },
+          "detail": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Detail"
+          },
+          "hash": {
+            "type": "string",
+            "title": "Hash",
+            "description": "SHA-256 over this event and the previous event's hash"
+          }
+        },
+        "type": "object",
+        "required": [
+          "seq",
+          "at",
+          "actor",
+          "type",
+          "summary",
+          "hash"
+        ],
+        "title": "AuditEvent"
+      },
+      "Basket": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "confirmed",
+              "pending_approval",
+              "closed"
+            ],
+            "title": "Status"
+          },
+          "status_reason": {
+            "type": "string",
+            "title": "Status Reason"
+          },
+          "total": {
+            "type": "number",
+            "title": "Total",
+            "description": "EUR without VAT, over the orders that are still active"
+          },
+          "total_with_tax": {
+            "type": "number",
+            "title": "Total With Tax"
+          },
+          "approvers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Approvers"
+          },
+          "order_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order By",
+            "description": "Earliest order cut-off in the basket"
+          },
+          "orders": {
+            "items": {
+              "$ref": "#/components/schemas/Order"
+            },
+            "type": "array",
+            "title": "Orders"
+          },
+          "left_out": {
+            "items": {
+              "$ref": "#/components/schemas/LeftOut"
+            },
+            "type": "array",
+            "title": "Left Out",
+            "description": "Needs of the list that could not be filled"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "status",
+          "status_reason",
+          "total",
+          "total_with_tax",
+          "approvers",
+          "orders"
+        ],
+        "title": "Basket",
+        "description": "Several orders decided as one: confirmed together, or held together for a human."
+      },
+      "BasketItem": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "title": "Request Id",
+            "description": "A request from request_options, e.g. PR-0001"
+          },
+          "option_id": {
+            "type": "string",
+            "title": "Option Id",
+            "description": "The option of that request to order",
+            "default": "opt-1"
+          }
+        },
+        "type": "object",
+        "required": [
+          "request_id"
+        ],
+        "title": "BasketItem"
+      },
+      "BasketRequest": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BasketItem"
+            },
+            "type": "array",
+            "maxItems": 15,
+            "minItems": 1,
+            "title": "Items"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Title",
+            "description": "What the basket is for, in a few words"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note",
+            "description": "Why these options. Kept in the audit trail"
+          },
+          "left_out": {
+            "items": {
+              "$ref": "#/components/schemas/LeftOutItem"
+            },
+            "type": "array",
+            "title": "Left Out",
+            "description": "Needs that could not be filled, so the buyer sees them. Other requests without an order since the agent's previous order are closed as replaced"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "title"
+        ],
+        "title": "BasketRequest"
+      },
+      "CategoryFacet": {
+        "properties": {
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "examples": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Examples"
+          }
+        },
+        "type": "object",
+        "required": [
+          "category",
+          "count",
+          "examples"
+        ],
+        "title": "CategoryFacet"
+      },
+      "ChainStatus": {
+        "properties": {
+          "intact": {
+            "type": "boolean",
+            "title": "Intact"
+          },
+          "events": {
+            "type": "integer",
+            "title": "Events"
+          },
+          "first_bad_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Bad Seq"
+          }
+        },
+        "type": "object",
+        "required": [
+          "intact",
+          "events",
+          "first_bad_seq"
+        ],
+        "title": "ChainStatus"
+      },
+      "DemoApprover": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "agent_id": {
+            "type": "string",
+            "title": "Agent Id",
+            "description": "The agent whose orders and rules this person decides"
+          },
+          "buyer_id": {
+            "type": "string",
+            "title": "Buyer Id"
+          },
+          "buyer_name": {
+            "type": "string",
+            "title": "Buyer Name"
+          },
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "link": {
+            "type": "string",
+            "title": "Link",
+            "description": "The kitchen view, signed in as this person"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "agent_id",
+          "buyer_id",
+          "buyer_name",
+          "key",
+          "link"
+        ],
+        "title": "DemoApprover"
+      },
+      "Excluded": {
+        "properties": {
+          "product_id": {
+            "type": "string",
+            "title": "Product Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "available",
+              "partial",
+              "late",
+              "order_window_closed",
+              "blocked",
+              "unavailable",
+              "no_price",
+              "unit_mismatch",
+              "unsafe_substitute"
+            ],
+            "title": "Status"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_id",
+          "name",
+          "status",
+          "reason"
+        ],
+        "title": "Excluded"
+      },
+      "FunnelStep": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "count"
+        ],
+        "title": "FunnelStep"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "LeftOut": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          },
+          "asked": {
+            "type": "string",
+            "title": "Asked",
+            "description": "The need, in the buyer's words where given"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "request_id",
+          "asked",
+          "reason"
+        ],
+        "title": "LeftOut"
+      },
+      "LeftOutItem": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "title": "Request Id",
+            "description": "A request of a need that is not in the basket"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason",
+            "description": "Why, in the buyer's terms. Defaults to what the gateway found"
+          }
+        },
+        "type": "object",
+        "required": [
+          "request_id"
+        ],
+        "title": "LeftOutItem"
+      },
+      "Mandate": {
+        "properties": {
+          "max_autonomous_spend": {
+            "type": "number",
+            "title": "Max Autonomous Spend",
+            "description": "EUR without VAT the agent may commit on its own per delivery day. Orders it placed alone for the same day count together, so splitting an order gains nothing. Spend a human approved does not count. Above the limit a human must approve"
+          },
+          "hard_max_order_total": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hard Max Order Total",
+            "description": "EUR without VAT. Above this the order is refused outright"
+          },
+          "allow_substitutes": {
+            "type": "boolean",
+            "title": "Allow Substitutes",
+            "description": "May the agent accept a substitute alone",
+            "default": true
+          },
+          "substitute_max_price_increase_pct": {
+            "type": "number",
+            "title": "Substitute Max Price Increase Pct",
+            "description": "Largest price increase per litre/kg a substitute may carry",
+            "default": 10
+          },
+          "allow_outside_preferences": {
+            "type": "boolean",
+            "title": "Allow Outside Preferences",
+            "description": "May the agent accept, alone, a product outside the buyer's stated preferences (label, brand, origin) when nothing that meets them can be delivered",
+            "default": false
+          },
+          "allow_partial": {
+            "type": "boolean",
+            "title": "Allow Partial",
+            "description": "May the agent accept a partial quantity alone",
+            "default": false
+          },
+          "allow_late": {
+            "type": "boolean",
+            "title": "Allow Late",
+            "description": "May the agent accept late delivery alone",
+            "default": false
+          },
+          "overage_tolerance_pct": {
+            "type": "number",
+            "title": "Overage Tolerance Pct",
+            "description": "Largest overshoot of the quantity caused by pack sizes",
+            "default": 5
+          },
+          "forbidden_allergens": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Forbidden Allergens",
+            "description": "Substances no ordered product may contain or possibly contain"
+          },
+          "allowed_categories": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allowed Categories",
+            "description": "Category codes the agent may buy from alone. Null: all"
+          },
+          "approvers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Approvers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "max_autonomous_spend"
+        ],
+        "title": "Mandate",
+        "description": "What a buyer lets its agent decide alone. Enforced by the wholesaler side on every order."
+      },
+      "MandateChange": {
+        "properties": {
+          "max_autonomous_spend": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Autonomous Spend"
+          },
+          "allow_substitutes": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allow Substitutes"
+          },
+          "allow_outside_preferences": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allow Outside Preferences"
+          },
+          "allow_partial": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allow Partial"
+          },
+          "allow_late": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allow Late"
+          }
+        },
+        "type": "object",
+        "title": "MandateChange"
+      },
+      "Need": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "title": "Query",
+            "description": "Words that must all appear in the product name or brand",
+            "default": ""
+          },
+          "exclude_terms": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Exclude Terms",
+            "description": "Words that must not appear in the product name"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category",
+            "description": "Restrict to one category code"
+          },
+          "free_from": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Free From",
+            "description": "Substances the product must be declared free from: lactose, gluten, milk, eggs, soy, wheat, nuts, peanuts, fish, crustaceans, molluscs, sesame, celery, mustard, sulphites, lupin"
+          },
+          "exclude_allergens": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Exclude Allergens",
+            "description": "Substances the product must not declare as contained or possibly contained"
+          },
+          "labels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Labels",
+            "description": "Labels the product must carry, e.g. EU_ORGANIC_FARMING"
+          },
+          "country_of_origin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country Of Origin",
+            "description": "ISO 3166-1 alpha-2, lowercase"
+          },
+          "brand": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brand"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text",
+            "description": "The buyer's original wording, kept verbatim for the audit trail"
+          },
+          "product_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Id",
+            "description": "A specific product that is wanted. Other products are then substitutes."
+          },
+          "quantity": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Quantity",
+            "description": "Amount wanted, in `unit`"
+          },
+          "unit": {
+            "type": "string",
+            "title": "Unit",
+            "description": "L, KG or SALES_UNIT. Also accepts litres, dl, ml, g, units",
+            "default": "L"
+          },
+          "deliver_by": {
+            "type": "string",
+            "format": "date",
+            "title": "Deliver By",
+            "description": "Latest acceptable delivery date"
+          },
+          "prefer": {
+            "type": "string",
+            "enum": [
+              "price",
+              "reliability",
+              "carbon"
+            ],
+            "title": "Prefer",
+            "description": "What to rank options by when several fit",
+            "default": "price"
+          }
+        },
+        "type": "object",
+        "required": [
+          "quantity",
+          "deliver_by"
+        ],
+        "title": "Need",
+        "description": "What the buyer wants, in structured form. The agent translates the buyer's words into it."
+      },
+      "Offer": {
+        "properties": {
+          "product_id": {
+            "type": "string",
+            "title": "Product Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "brand": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brand"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "sales_unit": {
+            "type": "string",
+            "title": "Sales Unit"
+          },
+          "labels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Labels",
+            "default": []
+          },
+          "country_of_origin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country Of Origin"
+          },
+          "delivery_reliability": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery Reliability"
+          },
+          "carbon_kg_co2e_per_kg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Carbon Kg Co2E Per Kg"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "available",
+              "partial",
+              "late",
+              "order_window_closed",
+              "blocked",
+              "unavailable",
+              "no_price",
+              "unit_mismatch",
+              "unsafe_substitute"
+            ],
+            "title": "Status"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "description": "Why the offer has this status, in plain words"
+          },
+          "orderable": {
+            "type": "boolean",
+            "title": "Orderable",
+            "description": "Can be ordered right now",
+            "default": false
+          },
+          "on_time": {
+            "type": "boolean",
+            "title": "On Time",
+            "description": "Delivered on or before the requested date",
+            "default": false
+          },
+          "unit_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Price",
+            "description": "EUR per sales unit, without VAT"
+          },
+          "unit_price_with_tax": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Price With Tax"
+          },
+          "tax_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tax Rate",
+            "description": "VAT percent"
+          },
+          "comparison_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comparison Price",
+            "description": "EUR per comparison unit, without VAT"
+          },
+          "comparison_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comparison Unit",
+            "description": "L or KG"
+          },
+          "content_per_unit": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Per Unit",
+            "description": "Requested units (L or KG) contained in one sales unit"
+          },
+          "content_source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "price_list",
+                  "product_data"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Source",
+            "description": "Where content_per_unit comes from: the price list's comparison price, or the net content declared in the product data when the price list has none"
+          },
+          "price_valid_to": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Valid To"
+          },
+          "logistic_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logistic Model",
+            "description": "Stock: quantity is known. Terminal: supplier warehouse, not known"
+          },
+          "available_units": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Available Units",
+            "description": "Sales units in stock. Null when not limited or not known"
+          },
+          "delivery_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery Date"
+          },
+          "order_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order By",
+            "description": "Order cut-off for the delivery date"
+          },
+          "order_step": {
+            "type": "number",
+            "title": "Order Step",
+            "description": "Order quantity step, in sales units",
+            "default": 1.0
+          },
+          "units_needed": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Units Needed",
+            "description": "Sales units covering the full need"
+          },
+          "units_offered": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Units Offered",
+            "description": "Sales units that can be supplied"
+          },
+          "quantity_offered": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity Offered",
+            "description": "Supplied amount in the need's unit"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total",
+            "description": "EUR without VAT for units_offered"
+          },
+          "total_with_tax": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total With Tax"
+          },
+          "is_substitute": {
+            "type": "boolean",
+            "title": "Is Substitute",
+            "description": "Differs from the specifically requested product",
+            "default": false
+          },
+          "listed_substitute": {
+            "type": "boolean",
+            "title": "Listed Substitute",
+            "description": "Named as a substitute by the wholesaler",
+            "default": false
+          },
+          "similarity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Similarity",
+            "description": "How close a substitute's name is to the requested product, 0-1"
+          },
+          "unmet_preferences": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unmet Preferences",
+            "description": "Stated preferences (label, brand, origin) this product does not meet"
+          },
+          "differences": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Differences",
+            "description": "How a substitute differs from the requested product"
+          },
+          "price_delta_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Delta Pct",
+            "description": "Price per litre/kg compared with the requested product, percent"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_id",
+          "name",
+          "category",
+          "sales_unit",
+          "status",
+          "reason"
+        ],
+        "title": "Offer",
+        "description": "One product priced and checked for availability against a need. Prices are fixed."
+      },
+      "OfferQuery": {
+        "properties": {
+          "product_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 60,
+            "minItems": 1,
+            "title": "Product Ids"
+          },
+          "quantity": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Quantity"
+          },
+          "unit": {
+            "type": "string",
+            "title": "Unit",
+            "description": "L, KG or SALES_UNIT",
+            "default": "SALES_UNIT"
+          },
+          "deliver_by": {
+            "type": "string",
+            "format": "date",
+            "title": "Deliver By"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_ids",
+          "quantity",
+          "deliver_by"
+        ],
+        "title": "OfferQuery"
+      },
+      "Option": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "tier": {
+            "type": "string",
+            "enum": [
+              "best",
+              "better",
+              "good"
+            ],
+            "title": "Tier",
+            "description": "best: exactly as asked. better: full and on time with a compromise (substitute or split). good: partial quantity or late delivery"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/OptionLine"
+            },
+            "type": "array",
+            "title": "Lines"
+          },
+          "quantity_requested": {
+            "type": "number",
+            "title": "Quantity Requested"
+          },
+          "quantity_covered": {
+            "type": "number",
+            "title": "Quantity Covered"
+          },
+          "unit": {
+            "type": "string",
+            "title": "Unit"
+          },
+          "coverage_pct": {
+            "type": "number",
+            "title": "Coverage Pct"
+          },
+          "total": {
+            "type": "number",
+            "title": "Total",
+            "description": "EUR without VAT"
+          },
+          "total_with_tax": {
+            "type": "number",
+            "title": "Total With Tax"
+          },
+          "currency": {
+            "type": "string",
+            "title": "Currency",
+            "default": "EUR"
+          },
+          "delivery_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Delivery Date"
+          },
+          "on_time": {
+            "type": "boolean",
+            "title": "On Time"
+          },
+          "order_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order By",
+            "description": "Earliest cut-off among the lines"
+          },
+          "has_substitute": {
+            "type": "boolean",
+            "title": "Has Substitute",
+            "default": false
+          },
+          "outside_preferences": {
+            "type": "boolean",
+            "title": "Outside Preferences",
+            "description": "Contains a product that does not meet a stated preference",
+            "default": false
+          },
+          "trade_offs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Trade Offs"
+          },
+          "policy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PolicyDecision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "proof": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proof",
+            "description": "The wholesaler's signature over this option's products, quantities, prices, delivery date and origin: a JWS (EdDSA). Anyone can verify it with the keys at /.well-known/jwks.json, without trusting the party that relayed the offer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tier",
+          "title",
+          "lines",
+          "quantity_requested",
+          "quantity_covered",
+          "unit",
+          "coverage_pct",
+          "total",
+          "total_with_tax",
+          "delivery_date",
+          "on_time"
+        ],
+        "title": "Option",
+        "description": "One concrete way to fulfil the need. The agent orders by option id."
+      },
+      "OptionLine": {
+        "properties": {
+          "product_id": {
+            "type": "string",
+            "title": "Product Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "sales_unit": {
+            "type": "string",
+            "title": "Sales Unit"
+          },
+          "units": {
+            "type": "number",
+            "title": "Units",
+            "description": "Sales units to order"
+          },
+          "quantity": {
+            "type": "number",
+            "title": "Quantity",
+            "description": "Amount covered, in the need's unit"
+          },
+          "unit_price": {
+            "type": "number",
+            "title": "Unit Price"
+          },
+          "total": {
+            "type": "number",
+            "title": "Total"
+          },
+          "total_with_tax": {
+            "type": "number",
+            "title": "Total With Tax"
+          },
+          "delivery_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Delivery Date"
+          },
+          "order_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order By"
+          },
+          "is_substitute": {
+            "type": "boolean",
+            "title": "Is Substitute",
+            "default": false
+          },
+          "price_delta_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Delta Pct"
+          },
+          "unmet_preferences": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unmet Preferences",
+            "description": "Stated preferences (label, brand, origin) this product does not meet"
+          },
+          "country_of_origin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country Of Origin"
+          },
+          "labels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Labels",
+            "description": "Certificates and labels"
+          },
+          "delivery_reliability": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery Reliability",
+            "description": "Historic share of ordered quantity delivered, 0-1"
+          },
+          "carbon_kg_co2e_per_kg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Carbon Kg Co2E Per Kg",
+            "description": "Average footprint of the product group, kg CO2e per kg"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_id",
+          "name",
+          "sales_unit",
+          "units",
+          "quantity",
+          "unit_price",
+          "total",
+          "total_with_tax",
+          "delivery_date"
+        ],
+        "title": "OptionLine"
+      },
+      "Order": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "confirmed",
+              "pending_approval",
+              "rejected",
+              "denied",
+              "expired"
+            ],
+            "title": "Status"
+          },
+          "status_reason": {
+            "type": "string",
+            "title": "Status Reason"
+          },
+          "agent_id": {
+            "type": "string",
+            "title": "Agent Id"
+          },
+          "buyer_id": {
+            "type": "string",
+            "title": "Buyer Id"
+          },
+          "buyer_name": {
+            "type": "string",
+            "title": "Buyer Name"
+          },
+          "need_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Need Text"
+          },
+          "option": {
+            "$ref": "#/components/schemas/Option"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/PolicyDecision"
+          },
+          "agent_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Note",
+            "description": "The agent's stated reason for this choice"
+          },
+          "approvers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Approvers",
+            "description": "Who may approve this order"
+          },
+          "basket_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basket Id",
+            "description": "Set when the order was placed together with others, as one decision"
+          },
+          "basket_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basket Title",
+            "description": "What the basket is for, in a few words"
+          },
+          "approval": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Approval"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "request_id",
+          "created_at",
+          "status",
+          "status_reason",
+          "agent_id",
+          "buyer_id",
+          "buyer_name",
+          "option",
+          "policy"
+        ],
+        "title": "Order"
+      },
+      "OrderRequest": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          },
+          "option_id": {
+            "type": "string",
+            "title": "Option Id"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note",
+            "description": "Why the agent chose this option. Kept in the audit trail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "request_id",
+          "option_id"
+        ],
+        "title": "OrderRequest"
+      },
+      "PolicyDecision": {
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "auto_approve",
+              "needs_approval",
+              "deny"
+            ],
+            "title": "Decision"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/RuleResult"
+            },
+            "type": "array",
+            "title": "Rules"
+          }
+        },
+        "type": "object",
+        "required": [
+          "decision",
+          "summary",
+          "rules"
+        ],
+        "title": "PolicyDecision",
+        "description": "The mandate applied to one option: what happens if the agent orders it."
+      },
+      "Product": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Product code, used in every other call"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "English name, or Finnish when no English name exists"
+          },
+          "names": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Names",
+            "description": "Name by language code (fi, en, sv)"
+          },
+          "brand": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brand"
+          },
+          "vendor": {
+            "type": "string",
+            "title": "Vendor"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category",
+            "description": "Wholesaler category code (names are not published)"
+          },
+          "gtin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gtin",
+            "description": "GS1 GTIN of the sales unit"
+          },
+          "sales_unit": {
+            "type": "string",
+            "title": "Sales Unit",
+            "description": "Unit the product is priced and ordered in"
+          },
+          "base_unit": {
+            "type": "string",
+            "title": "Base Unit"
+          },
+          "units": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Units",
+            "description": "Packaging unit -> size in base units"
+          },
+          "lot_size": {
+            "type": "number",
+            "title": "Lot Size",
+            "description": "Order quantity step, in sales units"
+          },
+          "country_of_origin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country Of Origin"
+          },
+          "temperature_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temperature Class",
+            "description": "ambient, chilled or frozen"
+          },
+          "claims": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Claims",
+            "description": "Nutritional claims, e.g. FREE_FROM_LACTOSE, VEGAN"
+          },
+          "contains": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Contains",
+            "description": "GS1 allergen codes the product contains"
+          },
+          "may_contain": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "May Contain",
+            "description": "GS1 allergen codes the product may contain"
+          },
+          "free_from": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Free From",
+            "description": "GS1 allergen codes declared absent"
+          },
+          "labels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Labels",
+            "description": "Certificates and labels, e.g. EU_ORGANIC_FARMING"
+          },
+          "substitutes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Substitutes",
+            "description": "Substitute product codes listed by the wholesaler"
+          },
+          "delivery_reliability": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery Reliability",
+            "description": "Historic share of ordered quantity delivered, 0-1"
+          },
+          "carbon_kg_co2e_per_kg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Carbon Kg Co2E Per Kg",
+            "description": "Average footprint of the product group, kg CO2e per kg"
+          },
+          "net_content": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Net Content",
+            "description": "Declared net content of one base unit, in KG and/or L (GS1 product data)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "names",
+          "vendor",
+          "category",
+          "sales_unit",
+          "base_unit",
+          "units",
+          "lot_size",
+          "claims",
+          "contains",
+          "may_contain",
+          "free_from",
+          "labels",
+          "substitutes"
+        ],
+        "title": "Product"
+      },
+      "PurchaseRequest": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "agent_id": {
+            "type": "string",
+            "title": "Agent Id"
+          },
+          "buyer_id": {
+            "type": "string",
+            "title": "Buyer Id"
+          },
+          "need": {
+            "$ref": "#/components/schemas/Need"
+          },
+          "server_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Server Time",
+            "description": "Wholesaler clock used for cut-off checks"
+          },
+          "candidates_considered": {
+            "type": "integer",
+            "title": "Candidates Considered"
+          },
+          "funnel": {
+            "items": {
+              "$ref": "#/components/schemas/FunnelStep"
+            },
+            "type": "array",
+            "title": "Funnel",
+            "description": "How the catalog was narrowed down to the options, step by step"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Notes"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/Option"
+            },
+            "type": "array",
+            "title": "Options"
+          },
+          "excluded": {
+            "items": {
+              "$ref": "#/components/schemas/Excluded"
+            },
+            "type": "array",
+            "title": "Excluded",
+            "description": "Matching products that cannot be ordered, with reasons"
+          },
+          "closed_as": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "left_out",
+                  "superseded"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed As",
+            "description": "Set when a basket was placed without this request. left_out: the agent could not fill the need and reported it. superseded: a working step the agent replaced"
+          },
+          "basket_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basket Id",
+            "description": "The basket that closed this request"
+          },
+          "closed_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "created_at",
+          "agent_id",
+          "buyer_id",
+          "need",
+          "server_time",
+          "candidates_considered",
+          "options"
+        ],
+        "title": "PurchaseRequest"
+      },
+      "RuleResult": {
+        "properties": {
+          "rule": {
+            "type": "string",
+            "title": "Rule"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "pass",
+              "needs_approval",
+              "deny"
+            ],
+            "title": "Outcome"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rule",
+          "outcome",
+          "message"
+        ],
+        "title": "RuleResult"
+      },
+      "Scenario": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "shows": {
+            "type": "string",
+            "title": "Shows"
+          },
+          "needs": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Needs"
+          },
+          "basket": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basket"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "shows",
+          "needs"
+        ],
+        "title": "Scenario"
+      },
+      "ScenarioResult": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "basket_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basket Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "request_id",
+          "status"
+        ],
+        "title": "ScenarioResult"
+      },
+      "SearchResult": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "Number of matching products before the limit is applied"
+          },
+          "products": {
+            "items": {
+              "$ref": "#/components/schemas/Product"
+            },
+            "type": "array",
+            "title": "Products"
+          },
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/CategoryFacet"
+            },
+            "type": "array",
+            "title": "Categories",
+            "description": "Categories of the matches, largest first: use one to narrow the search"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "products",
+          "categories"
+        ],
+        "title": "SearchResult"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "description": "Token the wholesaler issued to this agent",
+        "scheme": "bearer"
+      },
+      "ApproverKey": {
+        "type": "http",
+        "description": "Personal key of a person the buyer named to approve. In production: the buyer's own sign-in",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Agent",
+      "description": "What an external purchasing agent calls."
+    },
+    {
+      "name": "Approval desk",
+      "description": "What the buyer's human approver uses."
+    },
+    {
+      "name": "Demo",
+      "description": "Scripted purchases that drive the console."
+    }
+  ]
+}
