@@ -48,6 +48,8 @@ Rules of the road:
 
 Who you act for and what you may decide alone: spend limit per delivery day, whether you may accept substitutes, partial quantities or late delivery, forbidden allergens, and who approves what exceeds these limits.
 
+The spend limit counts what you ordered on your own for that delivery day. Orders a human approved do not use it up: that spend was their decision.
+
 ## `search_products`
 
 **Search the catalog**, reads only.

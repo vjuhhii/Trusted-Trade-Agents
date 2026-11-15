@@ -247,7 +247,9 @@ function facts(line) {
   if (line.delivery_reliability != null) {
     chips.push(`Delivered as ordered ${(line.delivery_reliability * 100).toFixed(1)}%`);
   }
-  if (line.carbon_kg_co2e_per_kg != null) chips.push(`${line.carbon_kg_co2e_per_kg} kg CO₂e/kg`);
+  if (line.carbon_kg_co2e_per_kg != null) {
+    chips.push(`${Number(line.carbon_kg_co2e_per_kg.toPrecision(2))} kg CO₂e/kg`);
+  }
   for (const label of line.labels.slice(0, 3)) chips.push(pretty(label));
   if (line.labels.length > 3) chips.push(`+${line.labels.length - 3} labels`);
   return chips.map((c) => `<span class="badge">${esc(c)}</span>`).join(" ");

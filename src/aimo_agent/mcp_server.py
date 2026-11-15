@@ -121,7 +121,10 @@ def _reported(tool: Callable[..., Any]) -> Callable[..., Any]:
 def get_mandate(ctx: Context) -> AgentIdentity:
     """Who you act for and what you may decide alone: spend limit per delivery day, whether you may
     accept substitutes, partial quantities or late delivery, forbidden allergens, and who
-    approves what exceeds these limits."""
+    approves what exceeds these limits.
+
+    The spend limit counts what you ordered on your own for that delivery day. Orders a human
+    approved do not use it up: that spend was their decision."""
     return _agent(ctx)
 
 
