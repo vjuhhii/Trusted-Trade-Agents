@@ -127,10 +127,11 @@
       <h3>Run a purchase</h3>
       <div id="scenarios"></div>
       <label class="small" style="display:flex;gap:6px;align-items:center;margin:4px 0 8px">
-        <input type="checkbox" id="fresh" checked> Start each run from a clean slate</label>
+        <input type="checkbox" id="fresh"> Empty everything before the run</label>
       <p class="small muted" style="margin:0">A scripted agent plays the buyer's side here.
         Claude or any MCP client connects to the same interface. Earlier orders count against
-        the day's budget, so a clean slate keeps each run as described.</p>
+        the day's budget, so a run may differ from its description; tick the box to start from
+        an empty store (it asks first).</p>
     </div>
     <div class="card">
       <h3>Requests</h3>
@@ -460,8 +461,10 @@ document.addEventListener("click", async (event) => {
       return refresh(true);
     }
     if (data.run) {
-      busy = true; refresh(true);
       const fresh = $("fresh").checked;
+      // Emptying the store wipes every order and the audit log: never without asking.
+      if (fresh && !confirm("Empty all requests, orders and the audit log before this run?")) return;
+      busy = true; refresh(true);
       if (fresh) tampered.clear();
       const results = await api(
         `/demo/scenarios/${encodeURIComponent(data.run)}?fresh=${fresh}`, { method: "POST" });

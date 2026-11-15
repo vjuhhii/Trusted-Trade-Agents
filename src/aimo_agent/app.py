@@ -405,7 +405,7 @@ async def demo_run(
     fresh: Annotated[
         bool,
         Query(description="Empty the store first, so earlier orders do not use up the budget"),
-    ] = True,
+    ] = False,
 ) -> list[ScenarioResult]:
     scenario = next((s for s in SCENARIOS if s.id == scenario_id), None)
     if scenario is None:

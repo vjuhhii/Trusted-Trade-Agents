@@ -1232,7 +1232,7 @@
             "schema": {
               "type": "boolean",
               "description": "Empty the store first, so earlier orders do not use up the budget",
-              "default": true,
+              "default": false,
               "title": "Fresh"
             },
             "description": "Empty the store first, so earlier orders do not use up the budget"
