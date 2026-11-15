@@ -27,14 +27,16 @@ There are two screens, for two audiences.
 their assistant in their own words; this page is the only screen the wholesaler asks of them.
 It is built for a phone and for people who do not live in software: one decision at a time, in
 plain words ("It costs €1,010. On its own it may spend up to €1,000 a day."), two buttons, and
-the assistant's rules as one number and four switches. No "mandate", no "policy", no codes.
+the assistant's rules as one number and four switches. No "mandate", no "policy", no codes. A
+menu the assistant ordered as one basket is one card, not six: "6 products in one order",
+the total, why it asks, and "Yes, order all 6" or "No".
 
 **The trade console, http://127.0.0.1:8000/console** — the same data for those who want to see
 how it works. It shows the three parties on one screen: the buyer's agent, the wholesaler's
 gateway, and the buyer's people.
 
-- **Run a purchase** with one click: six ready-made requests, from the challenge's example to a
-  split order and a product that is short.
+- **Run a purchase** with one click: seven ready-made requests, from the challenge's example to a
+  split order, a product that is short, and a wedding dinner ordered as one basket.
 - **Watch the gateway work:** the funnel from catalog matches to options, each option with its
   price, delivery date, origin, delivery reliability, carbon footprint and labels, and the
   mandate's verdict rule by rule.
@@ -52,6 +54,7 @@ uv run python -m aimo_agent.demo_agent --scenario shortage  # short stock: safe 
 uv run python -m aimo_agent.demo_agent --quantity 500       # run twice: splitting is caught
 uv run python -m aimo_agent.demo_agent --tamper             # a forged price is rejected
 uv run python -m aimo_agent.reset                           # empty orders and the audit log
+uv run python -m aimo_agent.reset --mandates                # ... and put the rules back to defaults
 ```
 
 The scripted agent talks to the gateway over MCP (Streamable HTTP) and makes the same calls an
@@ -70,8 +73,9 @@ plain words. REST clients use the same operations: http://127.0.0.1:8000/docs.
 | Lookup | `search_products`, `get_product` | `GET /v1/products` | Search of the static catalog: no live calls. |
 | Inquiry | `request_options` | `POST /v1/requests` | The need in structured form → ranked, orderable options at fixed prices, each with the mandate's verdict. |
 | Commitment | `place_order` | `POST /v1/orders` | Price and stock are re-checked, the mandate is applied: `confirmed`, `pending_approval` or `denied`. |
-| Sign-off | — (human) | `POST /v1/desk/orders/{id}/decision` | A named approver decides at the approval desk. |
-| Record | `get_order`, `get_audit_trail` | `GET /v1/orders/{id}/audit` | What happened, who did it, and why. |
+| A list | `request_options_for_list`, `place_basket` | `POST /v1/requests/batch`, `POST /v1/baskets` | Several needs in one call, then one option of each ordered as one basket: confirmed together or held together. |
+| Sign-off | — (human) | `POST /v1/desk/orders/{id}/decision` | A named approver decides at the approval desk. For an order of a basket the decision covers the basket. |
+| Record | `get_order`, `get_basket`, `get_audit_trail` | `GET /v1/orders/{id}/audit` | What happened, who did it, and why. |
 
 `check_price_and_availability` / `POST /v1/offers` gives raw price and availability for chosen
 products.
@@ -90,7 +94,15 @@ gateway then does the precise part itself:
   "coffee filter" is paper, and the Swedish "currypasta" is not pasta.
 - Litres and kilograms are converted to sales units from the wholesaler's own numbers: price per
   sales unit ÷ comparison price per litre gives the pack content (27.39 € at 1.30 €/l can only
-  be a 21-litre case).
+  be a 21-litre case). Where the price list has no price per kg or litre (a 1 kg bag of sugar is
+  priced per bag only), the net content declared in the GS1 product data is used instead, and
+  the option says so. On a live sample of 103 products that have both, they agree within 5% for
+  97; in two of the other six the product name sides with the declared content.
+- "Cheapest" is what the buyer pays for the quantity asked, in whole packs, not the price per
+  kg. For 25 kg of potatoes, 13 bags of 2 kg (26 kg, 17.29 €) come before 2 boxes of 15 kg
+  (30 kg, 19.56 €) even though the boxes are cheaper per kg. A pack that is cheaper in total
+  but overshoots the quantity still comes first; the mandate then asks a human, rather than
+  the agent paying more to avoid asking.
 - Live price and availability are fetched for at most 60 shortlisted products per request, as
   the mock API's documentation asks.
 
@@ -119,13 +131,15 @@ place: it reads the name and corrects with one excluded word. Details and every 
 ## Guardrails
 
 The mandate is the buyer's standing instruction to its agent. It lives with the wholesaler
-(`mandates.json` here) and is enforced on the wholesaler side on every order, so it holds
-whatever the agent does or says.
+and is enforced on the wholesaler side on every order, so it holds whatever the agent does or
+says. Here `mandates.json` holds the defaults; the copy in `data/` is the one in use, which the
+kitchen view edits.
 
 | The agent decides alone | A human must approve | Refused, approval cannot override |
 |---|---|---|
 | Searching and comparing | Spend above `max_autonomous_spend` for the delivery day | A dietary constraint of the request or mandate is violated |
 | An order within the limit, as asked, on time | A substitute when `allow_substitutes` is off, or dearer than the tolerance | Order total above `hard_max_order_total` |
+| A basket whose every item it could order alone, within the limit together | A basket over the limit together, or with any item that needs a human: the whole basket, once | — |
 | A substitute within the price tolerance | Partial quantity, late delivery, pack-size overshoot beyond tolerance | — |
 | | A product outside the stated preferences (label, brand, origin) | |
 | | A category outside `allowed_categories` | |
@@ -146,6 +160,31 @@ Every option carries the verdict *before* the agent orders (`policy.decision` an
 per rule), so an agent can tell its user "this will need the head chef" up front. Two demo
 mandates are configured: a hotel kitchen (1 000 € per delivery day, substitutes allowed) and
 school kitchens (400 €, no substitutes, nuts and peanuts forbidden).
+
+### A list is one decision
+
+An event menu or a weekly list used to mean one request and one order per product, and as many
+cards for the cook. Now the agent states every need in one call (`request_options_for_list`)
+and orders one option of each in another (`place_basket`), with a title the approver will
+recognise: "Wedding dinner for 120 on Monday". The rules are the same, applied to the basket as
+a whole:
+
+- Each item gets the mandate's verdict on its own, and the spend limit is applied once more to
+  the basket's total for the delivery day. In the wedding dinner every product is within the
+  limit alone, 1 123.70 € together is not, and the reason says so once, not six times.
+- If any item needs a human, the whole basket waits for one decision; the other items are
+  "held with the rest". Approving or rejecting any order of the basket decides all of it.
+- All or nothing: if an offer changed before the order, nothing in the basket is ordered. If one
+  changed while the basket waited, approval expires the whole basket. Items of one basket cannot
+  take the same stock twice.
+- An agent working through a list tries again with better words, and that is fine. What it
+  could not fill goes into `left_out` and is shown inside the basket ("Not in this order:
+  salmon fillet, nothing that fits can be delivered by Mon 16 Nov"). Its other requests since
+  its previous order are closed as replaced, so the cook does not see "not ordered" for a
+  salmon that was ordered on the third try. Both are in the audit trail.
+
+Inside, a basket is a group of ordinary orders sharing a `basket_id`: approval, audit trail
+and stock reservation work exactly as for one order.
 
 ## Exceptions
 
@@ -266,7 +305,7 @@ src/aimo_agent/
   demo_agent.py    scripted buyer agent (MCP client)
   evaluate.py      matching-precision benchmark
 evaluation/        benchmark cases and the latest results
-mandates.json      agents, buyers and their mandates
+mandates.json      agents, buyers and their mandates: defaults (in use: data/mandates.json)
 docs/challenge.md  the challenge brief and judging criteria
 ```
 

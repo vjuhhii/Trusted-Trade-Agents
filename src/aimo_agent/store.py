@@ -101,6 +101,29 @@ class Store:
         ).fetchall()
         return [PurchaseRequest.model_validate_json(row[0]) for row in rows]
 
+    def requests_of(self, buyer_id: str, after_seq: int = 0) -> list[PurchaseRequest]:
+        """A buyer's requests, oldest first: those received after audit event `after_seq`.
+
+        The audit log's sequence orders events strictly; timestamps may tie.
+        """
+        rows = self._db.execute(
+            "SELECT body FROM requests WHERE buyer_id = ? AND id IN "
+            "(SELECT request_id FROM events WHERE type = 'request.received' AND seq > ?) "
+            "ORDER BY id",
+            (buyer_id, after_seq),
+        ).fetchall()
+        return [PurchaseRequest.model_validate_json(row[0]) for row in rows]
+
+    def last_seq(self, order_ids: list[str]) -> int:
+        """The latest audit event of these orders, 0 when there is none."""
+        if not order_ids:
+            return 0
+        marks = ", ".join("?" * len(order_ids))
+        (seq,) = self._db.execute(
+            f"SELECT COALESCE(MAX(seq), 0) FROM events WHERE order_id IN ({marks})", order_ids
+        ).fetchone()
+        return seq
+
     # Orders
 
     def save_order(self, order: Order) -> None:

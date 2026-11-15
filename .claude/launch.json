@@ -6,6 +6,12 @@
       "runtimeExecutable": "uv",
       "runtimeArgs": ["run", "uvicorn", "aimo_agent.app:app", "--port", "8000"],
       "port": 8000
+    },
+    {
+      "name": "aimo-gateway-8001",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "uvicorn", "aimo_agent.app:app", "--port", "8001"],
+      "port": 8001
     }
   ]
 }

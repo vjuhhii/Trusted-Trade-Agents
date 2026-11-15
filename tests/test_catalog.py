@@ -1,4 +1,4 @@
-from aimo_agent.catalog import Catalog, SearchFilters
+from aimo_agent.catalog import Catalog, SearchFilters, _net_content
 from tests.conftest import make_product
 
 
@@ -71,3 +71,18 @@ def test_search_reports_total_and_category_facets(catalog: Catalog) -> None:
 def test_unknown_substances_are_reported() -> None:
     filters = SearchFilters(free_from=["lactose", "unicorn"])
     assert filters.unknown_substances() == ["unicorn"]
+
+
+def test_net_content_is_read_from_the_base_unit_packaging() -> None:
+    synkka = {
+        "unitConversions": [
+            {"synkkaPackagingType": "CASE", "netWeight": {"unit": "KGM", "value": 10.0}},
+            {
+                "synkkaPackagingType": "BASE_UNIT_OR_EACH",
+                "netWeight": {"unit": "GRM", "value": 1043.0},
+                "volume": {"unit": "LTR", "value": 1.0},
+            },
+        ]
+    }
+    assert _net_content(synkka) == {"KG": 1.043, "L": 1.0}
+    assert _net_content({"unitConversions": None}) == {}

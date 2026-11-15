@@ -55,6 +55,18 @@
   .item .name { font-weight: 600; line-height: 1.35; }
   .item .amount { font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .item .note { grid-column: 1 / -1; font-size: 15px; color: var(--muted); }
+  details.lines { margin: 12px 0 0; font-size: 15px; }
+  .item details.lines { grid-column: 1 / -1; margin: 2px 0 0; }
+  .gaps { grid-column: 1 / -1; margin: 12px 0 0; padding: 10px 12px; border-radius: 12px;
+          background: var(--bad-bg); color: var(--bad); font-size: 15px; }
+  .item .gaps { margin: 6px 0 0; }
+  .gaps b { display: block; }
+  details.lines summary { cursor: pointer; color: var(--accent); font-weight: 600; min-height: 32px;
+                          display: flex; align-items: center; }
+  details.lines .line { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 7px 0;
+                        border-top: 1px solid var(--line); line-height: 1.35; }
+  details.lines .line:first-of-type { border-top: 0; }
+  details.lines .line .pill { margin: 0 0 0 6px; }
   .pill { display: inline-block; border-radius: 99px; padding: 1px 10px; font-size: 13px;
           font-weight: 650; margin-right: 6px; }
   .pill.ok { background: var(--ok-bg); color: var(--ok); }
@@ -180,7 +192,101 @@ function askCard(order, limit) {
   </section>`;
 }
 
+// Orders placed as one basket are decided as one, so they are shown as one.
+function groups(orders) {
+  const out = [];
+  const byBasket = new Map();
+  for (const order of orders) {
+    if (!order.basket_id) { out.push([order]); continue; }
+    if (!byBasket.has(order.basket_id)) { byBasket.set(order.basket_id, []); out.push(byBasket.get(order.basket_id)); }
+    byBasket.get(order.basket_id).push(order);
+  }
+  return out.map((group) => group.sort((a, b) => a.id.localeCompare(b.id)));
+}
+
+const sum = (orders) => orders.reduce((total, order) => total + order.option.total, 0);
+const shortName = (order) => order.need_text || order.option.lines[0].name;
+const products = (n) => `${n} product${n === 1 ? "" : "s"}`;
+
+function basketReasons(orders, limit) {
+  const waiting = orders.filter((o) => o.status === "pending_approval");
+  const total = sum(waiting);
+  const out = [];
+  const spend = ["spend_limit", "basket_spend_limit"];
+  if (waiting.some((o) => o.policy.rules.some((r) => spend.includes(r.rule) && r.outcome === "needs_approval"))) {
+    out.push(total > limit
+      ? `Together they cost ${eur(total)}. On its own it may spend up to ${eur(limit)} a day.`
+      : `Together with what it already ordered for that day, ${eur(total)} is more than the `
+        + `${eur(limit)} it may spend on its own.`);
+  }
+  for (const order of waiting) {
+    for (const rule of order.policy.rules) {
+      if (rule.outcome === "needs_approval" && !spend.includes(rule.rule)) {
+        out.push(`${shortName(order)}: ${reason(rule, order, limit)}`);
+      }
+    }
+  }
+  out.push("It orders them together or not at all, so it asks you once.");
+  return out.map((text) => `<div>${esc(text)}</div>`).join("");
+}
+
+function basketCard(orders, limit, gaps = []) {
+  const waiting = orders.filter((o) => o.status === "pending_approval");
+  const blocked = orders.filter((o) => o.status === "denied");
+  const first = waiting[0];
+  const days = [...new Set(waiting.map((o) => o.option.delivery_date))].sort();
+  const cutOffs = waiting.map((o) => o.option.order_by).filter(Boolean).sort();
+  const items = waiting.map((order) => `<div class="line">
+      <span>${order.option.lines.map((l) => esc(lineText(l))).join("<br>")}
+        ${order.policy.rules.some((r) => r.outcome === "needs_approval" && !r.rule.includes("spend_limit"))
+          ? '<span class="pill wait">see why</span>' : ""}</span>
+      <span class="amount">${eur(order.option.total)}</span></div>`).join("");
+  const left = blocked.map((order) => `<div class="line"><span>${esc(shortName(order))}
+      <span class="pill stop">left out</span><br><span class="sub">${esc(plain(order.status_reason))}</span></span>
+      <span></span></div>`).join("");
+  return `<section class="card ask" aria-label="Basket waiting for you">
+    <p class="asked">For “${esc(first.basket_title)}”</p>
+    <p class="what">${products(waiting.length)} in one order</p>
+    <div class="sub">Arrives ${days.map(dayOf).join(" and ")}</div>
+    <p class="price">${eur(sum(waiting))} <span class="sub">+ VAT</span></p>
+    ${gapList(gaps)}
+    <details class="lines" data-key="ask-${esc(first.basket_id)}"><summary>What is in it</summary>${items}${left}</details>
+    <div class="why"><b>Why your assistant is asking you</b>${basketReasons(orders, limit)}</div>
+    ${cutOffs.length ? `<p class="sub" style="margin:12px 0 0">Decide before
+      ${momentOf(cutOffs[0])}, or not everything can arrive in time.</p>` : ""}
+    <div class="buttons">
+      <button class="yes" data-decide="${esc(first.id)}" data-approved="true">Yes, order all ${waiting.length}</button>
+      <button class="no" data-decide="${esc(first.id)}" data-approved="false">No</button>
+    </div>
+  </section>`;
+}
+
+function doneBasket(orders, gaps = []) {
+  const status = (s) => orders.some((o) => o.status === s);
+  const approval = orders.find((o) => o.approval)?.approval;
+  const live = orders.filter((o) => ["confirmed", "pending_approval"].includes(o.status));
+  const [kind, label, note] = status("pending_approval") ? ["wait", "Waiting for you", "See above."]
+    : status("confirmed") ? ["ok", "Ordered", approval
+        ? `${esc(approval.approver)} said yes.` : "Within your rules, so it did not need to ask you."]
+    : status("rejected") ? ["stop", "Not ordered", `${esc(approval?.approver || "You")} said no.`]
+    : status("expired") ? ["stop", "Too late", esc(plain(orders.find((o) => o.status === "expired").status_reason))]
+    : ["stop", "Blocked", esc(plain(orders[0].status_reason))];
+  const arrives = status("confirmed")
+    ? ` Arrives ${[...new Set(live.map((o) => o.option.delivery_date))].sort().map(dayOf).join(" and ")}.` : "";
+  const items = orders.map((order) => `<div class="line">
+      <span>${order.option.lines.map((l) => esc(lineText(l))).join("<br>")}
+        ${order.status === "denied" ? '<span class="pill stop">left out</span>' : ""}</span>
+      <span class="amount">${eur(order.option.total)}</span></div>`).join("");
+  return `<div class="item">
+    <span class="name">${esc(orders[0].basket_title)} · ${products(live.length || orders.length)}</span>
+    <span class="amount">${eur(sum(live.length ? live : orders))}</span>
+    <span class="note"><span class="pill ${kind}">${label}</span>${note}${arrives}</span>
+    ${status("pending_approval") ? "" : gapList(gaps)}
+    <details class="lines" data-key="done-${esc(orders[0].basket_id)}"><summary>What is in it</summary>${items}</details></div>`;
+}
+
 function doneItem(entry) {
+  if (entry.kind === "basket") return doneBasket(entry.orders, entry.gaps);
   if (entry.kind === "failed") {
     const day = dayOf(entry.request.need.deliver_by);
     return `<div class="item"><span class="name">${esc(entry.request.need.text || entry.request.need.query)}</span>
@@ -204,25 +310,44 @@ function doneItem(entry) {
       ${order.status === "confirmed" ? ` Arrives ${dayOf(order.option.delivery_date)}.` : ""}</span></div>`;
 }
 
+const lower = (text) => text.charAt(0).toLowerCase() + text.slice(1);
+
+function gapList(gaps = []) {
+  if (!gaps.length) return "";
+  return `<div class="gaps"><b>Not in this order</b>${gaps.map((r) =>
+    `<div>${esc(r.need.text || r.need.query)}: ${esc(lower(plain(r.closed_reason || "")))}</div>`).join("")}</div>`;
+}
+
 function render(orders, requests, agent) {
+  const gapsOf = {};
+  for (const r of requests) {
+    if (r.closed_as === "left_out") (gapsOf[r.basket_id] ||= []).push(r);
+  }
   const mandate = agent.mandate;
   $("buyer").textContent = agent.buyer_name;
   const people = mandate.approvers.length ? mandate.approvers : ["The kitchen"];
   if (!people.includes(me)) me = people[0];
   $("me").innerHTML = people.map((p) => `<option ${p === me ? "selected" : ""}>${esc(p)}</option>`).join("");
 
-  const waiting = orders.filter((o) => o.status === "pending_approval");
+  const limit = mandate.max_autonomous_spend;
+  const grouped = groups(orders);
+  const waiting = grouped.filter((group) => group.some((o) => o.status === "pending_approval"));
   $("asks").innerHTML = waiting.length
-    ? `<h2 style="margin-top:0">Needs your OK</h2>${waiting
-        .map((order) => askCard(order, mandate.max_autonomous_spend)).join("")}`
+    ? `<h2 style="margin-top:0">Needs your OK</h2>${waiting.map((group) => group[0].basket_id
+        ? basketCard(group, limit, gapsOf[group[0].basket_id]) : askCard(group[0], limit)).join("")}`
     : `<div class="card calm"><div class="tick">✓</div>
         <p><b>Nothing needs you right now.</b></p>
         <p class="sub">Your assistant is ordering within your rules.</p></div>`;
 
   const ordered = new Set(orders.map((o) => o.request_id));
+  const latest = (group) => group.map((o) => o.created_at).sort().at(-1);
   const entries = [
-    ...orders.map((order) => ({ kind: "order", at: order.created_at, order })),
-    ...requests.filter((r) => !ordered.has(r.id) && !r.options.length)
+    ...grouped.map((group) => group[0].basket_id
+      ? { kind: "basket", at: latest(group), orders: group, gaps: gapsOf[group[0].basket_id] }
+      : { kind: "order", at: group[0].created_at, order: group[0] }),
+    // Requests a basket closed are not shown on their own: what was left out is in the
+    // basket, and what the assistant replaced with a better request is no news to anyone.
+    ...requests.filter((r) => !ordered.has(r.id) && !r.options.length && !r.closed_as)
       .map((request) => ({ kind: "failed", at: request.created_at, request })),
   ].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 8);
   $("done").innerHTML = entries.map(doneItem).join("")
@@ -299,6 +424,16 @@ document.addEventListener("change", (event) => {
   else if (target.id === "limit") saveRules({ max_autonomous_spend: Math.max(1, Number(target.value)) });
   else if (target.dataset.rule) saveRules({ [target.dataset.rule]: target.checked });
 });
+
+// Keep "What is in it" open across the page's refreshes.
+const opened = new Set();
+document.addEventListener("toggle", (event) => {
+  const key = event.target.dataset?.key;
+  if (key) event.target.open ? opened.add(key) : opened.delete(key);
+}, true);
+new MutationObserver(() => {
+  for (const box of document.querySelectorAll("details[data-key]")) box.open = opened.has(box.dataset.key);
+}).observe(document.querySelector("main"), { childList: true, subtree: true });
 
 refresh(true);
 setInterval(refresh, 2000);

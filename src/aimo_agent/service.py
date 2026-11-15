@@ -6,11 +6,11 @@ Every step is written to the audit log with the actor and a plain-language reaso
 import asyncio
 import math
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from functools import lru_cache
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
 import httpx
 
@@ -24,13 +24,16 @@ from aimo_agent.catalog import (
     readable,
 )
 from aimo_agent.config import settings
-from aimo_agent.mandate import evaluate_policy
+from aimo_agent.mandate import add_basket_limit, evaluate_policy
 from aimo_agent.models import (
     AgentIdentity,
     Approval,
     AuditEvent,
+    Basket,
     Excluded,
     FunnelStep,
+    LeftOut,
+    LeftOutItem,
     Need,
     Offer,
     Option,
@@ -46,6 +49,7 @@ from aimo_agent.units import normalize_quantity
 
 # Live price and availability are fetched only for a shortlist, never for the whole catalog.
 MAX_CANDIDATES = 60
+MAX_BASKET_ITEMS = 15
 MAX_SUBSTITUTE_CANDIDATES = 30
 MIN_NAME_OVERLAP = 0.25
 # A request without a category is narrowed to the categories its product type lives in:
@@ -472,11 +476,20 @@ class PurchasingService:
         self.store.save_request(request)
         return request
 
-    def _policy(self, agent: AgentIdentity, need: Need, option: Option) -> PolicyDecision:
+    def _policy(
+        self,
+        agent: AgentIdentity,
+        need: Need,
+        option: Option,
+        *,
+        basket: Sequence[Option] = (),
+    ) -> PolicyDecision:
         """The mandate's verdict on an option.
 
         Orders the agent placed alone for the same delivery day count against its spend limit.
-        Orders a human approved do not: that spend was a human's decision.
+        Orders a human approved do not: that spend was a human's decision. `basket` are the
+        options ordered together with this one, itself included: the limit applies to their sum
+        as well, so a basket is held as a whole when together it is over the limit.
         """
         earlier = [
             order
@@ -485,14 +498,28 @@ class PurchasingService:
             and order.approval is None
             and order.option.delivery_date == option.delivery_date
         ]
-        return evaluate_policy(
+        already_spent = round(sum(order.option.total for order in earlier), 2)
+        earlier_orders = sorted(order.id for order in earlier)
+        policy = evaluate_policy(
             agent.mandate,
             need,
             option,
             self.catalog,
-            already_spent=round(sum(order.option.total for order in earlier), 2),
-            earlier_orders=sorted(order.id for order in earlier),
+            already_spent=already_spent,
+            earlier_orders=earlier_orders,
         )
+        same_day = [o for o in basket if o.delivery_date == option.delivery_date]
+        if len(same_day) > 1:
+            policy = add_basket_limit(
+                policy,
+                agent.mandate,
+                option,
+                basket_total=round(sum(o.total for o in same_day), 2),
+                basket_orders=len(same_day),
+                already_spent=already_spent,
+                earlier_orders=earlier_orders,
+            )
+        return policy
 
     def get_request(self, agent: AgentIdentity, request_id: str) -> PurchaseRequest:
         request = self.store.get_request(request_id)
@@ -504,14 +531,23 @@ class PurchasingService:
 
     # Order
 
-    async def _revalidate(self, need: Need, option: Option, *, holds_stock: bool) -> list[str]:
+    async def _revalidate(
+        self,
+        need: Need,
+        option: Option,
+        *,
+        holds_stock: bool,
+        alongside: Mapping[str, float] | None = None,
+    ) -> list[str]:
         """Re-check an option against live data. Returns what changed, empty when it still holds.
 
         `holds_stock` is true for an order waiting for approval: its own reservation must not
-        count against it.
+        count against it. `alongside` is stock, in sales units by product, that other items of
+        the same basket are about to take.
         """
         live = await self._live([line.product_id for line in option.lines], need.deliver_by)
-        reserved = self.store.reserved_units()
+        reserved = Counter(self.store.reserved_units())
+        reserved.update(alongside or {})
         problems: list[str] = []
         for line in option.lines:
             held = reserved.get(line.product_id, 0.0) - (line.units if holds_stock else 0.0)
@@ -540,11 +576,18 @@ class PurchasingService:
                 problems.append(f"{line.name}: delivery moved to {day(offer.delivery_date)}")
         return problems
 
-    async def place_order(
-        self, agent: AgentIdentity, request_id: str, option_id: str, note: str | None = None
-    ) -> Order:
-        """Commit to one option. The mandate decides: confirmed, held for approval, or refused."""
+    def _orderable(
+        self, agent: AgentIdentity, request_id: str, option_id: str
+    ) -> tuple[PurchaseRequest, Option]:
+        """The request and its option, provided the request has not been ordered already."""
         request = self.get_request(agent, request_id)
+        if request.closed_as:
+            raise ServiceError(
+                "closed",
+                f"{request_id} was closed ({request.closed_as.replace('_', ' ')}) when basket "
+                f"{request.basket_id} was placed without it. Create a new request.",
+                409,
+            )
         option = next((o for o in request.options if o.id == option_id), None)
         if option is None:
             known = ", ".join(o.id for o in request.options) or "none"
@@ -563,7 +606,95 @@ class PurchasingService:
                 "Create a new request to order again.",
                 409,
             )
+        return request, option
 
+    def _new_order(
+        self,
+        agent: AgentIdentity,
+        request: PurchaseRequest,
+        option: Option,
+        note: str | None,
+        *,
+        basket: tuple[str, str, Sequence[Option]] | None = None,
+    ) -> Order:
+        """An order with the mandate's verdict on it. `_settle` decides its status.
+
+        `basket` is the id, title and options of the basket the order is placed in.
+        """
+        policy = self._policy(agent, request.need, option, basket=basket[2] if basket else ())
+        return Order(
+            id=self.store.next_id("PO"),
+            request_id=request.id,
+            created_at=datetime.now(UTC),
+            status="pending_approval",
+            status_reason="",
+            agent_id=agent.agent_id,
+            buyer_id=agent.buyer_id,
+            buyer_name=agent.buyer_name,
+            need_text=request.need.text,
+            option=option.model_copy(update={"policy": policy}),
+            policy=policy,
+            agent_note=note,
+            approvers=agent.mandate.approvers,
+            basket_id=basket[0] if basket else None,
+            basket_title=basket[1] if basket else None,
+        )
+
+    def _settle(self, agent: AgentIdentity, orders: list[Order], title: str | None = None) -> None:
+        """Decide orders as one: confirmed together, or held together for one human decision.
+
+        A basket is all or nothing. If any item needs approval or is refused, the others wait
+        too: half an event's menu is of no use to a kitchen.
+        """
+        hold = any(order.policy.decision != "auto_approve" for order in orders)
+        approvers = " or ".join(agent.mandate.approvers) or "the buyer"
+        together = f' with the rest of "{title}"' if title else ""
+        for order in orders:
+            option = order.option
+
+            def log(
+                type_: str, summary: str, detail: dict | None = None, *, o: Order = order
+            ) -> None:
+                self.store.add_event(
+                    "system", type_, summary, request_id=o.request_id, order_id=o.id, detail=detail
+                )
+
+            rules = [rule.model_dump() for rule in order.policy.rules]
+            log("policy.evaluated", order.policy.summary, {"rules": rules})
+            if order.policy.decision == "deny":
+                order.status, order.status_reason = "denied", order.policy.summary
+                log(
+                    "order.denied",
+                    f"Order {order.id} was refused. "
+                    "A mandate refusal cannot be overridden by approval.",
+                )
+            elif hold:
+                order.status = "pending_approval"
+                order.status_reason = (
+                    order.policy.summary
+                    if order.policy.decision == "needs_approval"
+                    else f"Held{together}, which needs a human's decision as a whole."
+                )
+                log(
+                    "approval.requested",
+                    f"Order {order.id} is held{together} until {approvers} decides.",
+                )
+            else:
+                order.status = "confirmed"
+                order.status_reason = "Confirmed automatically: within the agent's mandate."
+                log(
+                    "order.confirmed",
+                    f"Order {order.id} confirmed without human involvement{together}: "
+                    f"{option.total:.2f} EUR ({option.total_with_tax:.2f} with VAT), delivery "
+                    f"{day(option.delivery_date)}.",
+                )
+            self.store.save_order(order)
+
+    async def place_order(
+        self, agent: AgentIdentity, request_id: str, option_id: str, note: str | None = None
+    ) -> Order:
+        """Commit to one option. The mandate decides: confirmed, held for approval, or refused."""
+        request, option = self._orderable(agent, request_id, option_id)
         reason = f' Reason given: "{note}"' if note else ""
         self.store.add_event(
             f"agent:{agent.agent_id}",
@@ -588,51 +719,235 @@ class PurchasingService:
                 409,
             )
 
-        policy = self._policy(agent, request.need, option)
-        status, status_reason = {
-            "auto_approve": ("confirmed", "Confirmed automatically: within the agent's mandate."),
-            "needs_approval": ("pending_approval", policy.summary),
-            "deny": ("denied", policy.summary),
-        }[policy.decision]
-        order = Order(
-            id=self.store.next_id("PO"),
-            request_id=request_id,
-            created_at=datetime.now(UTC),
+        order = self._new_order(agent, request, option, note)
+        self._settle(agent, [order])
+        return order
+
+    # Baskets: several needs, one decision
+
+    async def create_requests(
+        self, agent: AgentIdentity, needs: Sequence[Need]
+    ) -> list[PurchaseRequest]:
+        """Options for several needs at once, e.g. the ingredients of a menu."""
+        if not 1 <= len(needs) <= MAX_BASKET_ITEMS:
+            raise ServiceError("invalid", f"Give 1-{MAX_BASKET_ITEMS} needs.")
+        return [await self.create_request(agent, need) for need in needs]
+
+    async def place_basket(
+        self,
+        agent: AgentIdentity,
+        items: Sequence[tuple[str, str]],
+        title: str,
+        note: str | None = None,
+        left_out: Sequence[LeftOutItem] = (),
+    ) -> Basket:
+        """Order one option from each of several requests as a whole.
+
+        The mandate is applied to every item, and the spend limit to their sum. If everything
+        is within the mandate, everything is confirmed. Otherwise the whole basket is held for
+        one human decision.
+
+        The basket also closes the agent's working steps for the list: `left_out` are needs it
+        could not fill, which the buyer is shown; every other request without an order made
+        since the agent's previous order is closed as superseded.
+        """
+        if not 1 <= len(items) <= MAX_BASKET_ITEMS:
+            raise ServiceError("invalid", f"A basket holds 1-{MAX_BASKET_ITEMS} items.")
+        in_basket = [request_id for request_id, _ in items]
+        if len(set(in_basket)) != len(items):
+            raise ServiceError("invalid", "A request may appear in a basket once.")
+        gaps = {item.request_id: item for item in left_out}
+        if len(gaps) != len(left_out) or set(gaps) & set(in_basket):
+            raise ServiceError(
+                "invalid", "A request is either in the basket or left out of it, and only once."
+            )
+        chosen = [self._orderable(agent, request_id, option_id) for request_id, option_id in items]
+        missing = [self._open_request(agent, request_id) for request_id in gaps]
+        # The agent's previous order settles what came before it: only later requests are
+        # this list's working steps.
+        since = self.store.last_seq(
+            [
+                o.id
+                for o in self.store.list_orders(buyer_id=agent.buyer_id)
+                if o.agent_id == agent.agent_id
+            ]
+        )
+        basket_id = self.store.next_id("BK")
+        total = round(sum(option.total for _, option in chosen), 2)
+        reason = f' Reason given: "{note}"' if note else ""
+        for request, option in chosen:
+            self.store.add_event(
+                f"agent:{agent.agent_id}",
+                "order.requested",
+                f"{agent.agent_name} chose {option.id}: {option.title}, {option.total:.2f} EUR, "
+                f'as part of "{title}" ({len(chosen)} items, {total:.2f} EUR in all).{reason}',
+                request_id=request.id,
+                detail={"option_id": option.id, "basket_id": basket_id, "note": note},
+            )
+
+        problems: list[str] = []
+        taken: Counter[str] = Counter()
+        for request, option in chosen:
+            problems += await self._revalidate(
+                request.need, option, holds_stock=False, alongside=taken
+            )
+            taken.update({line.product_id: line.units for line in option.lines})
+        if problems:
+            changed = "; ".join(problems)
+            for request, _ in chosen:
+                self.store.add_event(
+                    "system",
+                    "order.refused",
+                    f'An offer in "{title}" changed since the options were proposed: {changed}. '
+                    "Nothing was ordered.",
+                    request_id=request.id,
+                )
+            raise ServiceError(
+                "offer_changed",
+                f"An offer no longer holds: {changed}. Nothing in the basket was ordered. "
+                "Create new requests for current options.",
+                409,
+            )
+
+        options = [option for _, option in chosen]
+        orders = [
+            self._new_order(agent, request, option, note, basket=(basket_id, title, options))
+            for request, option in chosen
+        ]
+        self._settle(agent, orders, title)
+
+        reported = []
+        for request in missing:
+            reason = gaps[request.id].reason or self._gap(request)
+            self._close(request, "left_out", basket_id, reason)
+            self.store.add_event(
+                f"agent:{agent.agent_id}",
+                "request.left_out",
+                f'{agent.agent_name} left "{self._asked(request)}" out of "{title}" '
+                f"({basket_id}): {reason}",
+                request_id=request.id,
+                detail={"basket_id": basket_id},
+            )
+            reported.append(
+                LeftOut(request_id=request.id, asked=self._asked(request), reason=reason)
+            )
+        ordered = {o.request_id for o in self.store.list_orders(buyer_id=agent.buyer_id)}
+        for request in self.store.requests_of(agent.buyer_id, since):
+            if (
+                request.agent_id == agent.agent_id
+                and request.id not in ordered
+                and request.id not in gaps
+                and not request.closed_as
+            ):
+                self._close(request, "superseded", basket_id, "Replaced by a later request.")
+                self.store.add_event(
+                    "system",
+                    "request.superseded",
+                    f'Closed without an order: {agent.agent_name} placed "{title}" '
+                    f"({basket_id}) without it.",
+                    request_id=request.id,
+                    detail={"basket_id": basket_id},
+                )
+        return self._basket(orders, reported)
+
+    def _open_request(self, agent: AgentIdentity, request_id: str) -> PurchaseRequest:
+        """A request of the agent's that has no active order and is not closed."""
+        request = self.get_request(agent, request_id)
+        if request.closed_as:
+            raise ServiceError(
+                "closed", f"{request_id} is closed already ({request.closed_as}).", 409
+            )
+        if any(
+            o.status in ("confirmed", "pending_approval")
+            for o in self.store.list_orders(request_id=request_id)
+        ):
+            raise ServiceError(
+                "already_ordered", f"{request_id} has an order, so it is not left out.", 409
+            )
+        return request
+
+    def _close(
+        self,
+        request: PurchaseRequest,
+        how: Literal["left_out", "superseded"],
+        basket_id: str,
+        reason: str,
+    ) -> None:
+        request.closed_as, request.basket_id, request.closed_reason = how, basket_id, reason
+        self.store.save_request(request)
+
+    @staticmethod
+    def _asked(request: PurchaseRequest) -> str:
+        need = request.need
+        return need.text or need.query or need.product_id or request.id
+
+    @staticmethod
+    def _gap(request: PurchaseRequest) -> str:
+        if not request.options:
+            return f"Nothing that fits can be delivered by {day(request.need.deliver_by)}."
+        return "Not ordered: left for the buyer to decide."
+
+    @staticmethod
+    def _basket(orders: list[Order], left_out: Sequence[LeftOut] = ()) -> Basket:
+        first = orders[0]
+        waiting = [o for o in orders if o.status == "pending_approval"]
+        confirmed = [o for o in orders if o.status == "confirmed"]
+        live = [o for o in orders if o.status in ("confirmed", "pending_approval")]
+        if waiting:
+            # The basket-wide rule reads the same on every order: say it once.
+            why: dict[str, None] = {}
+            for order in orders:
+                for rule in order.policy.rules:
+                    if rule.outcome == "pass":
+                        continue
+                    item = (order.need_text or order.option.title).rstrip(" .")
+                    why[
+                        rule.message
+                        if rule.rule == "basket_spend_limit"
+                        else f"{item}: {rule.message}"
+                    ] = None
+            status, status_reason = (
+                "pending_approval",
+                " ".join(["Held for one human decision.", *why]),
+            )
+        elif confirmed:
+            status = "confirmed"
+            status_reason = (
+                f"All {len(confirmed)} orders are confirmed."
+                if len(confirmed) == len(orders)
+                else f"{len(confirmed)} of {len(orders)} orders are confirmed."
+            )
+        else:
+            reasons = dict.fromkeys(order.status_reason for order in orders)
+            status, status_reason = "closed", " ".join(["Nothing of it is ordered.", *reasons])
+        cut_offs = [o.option.order_by for o in live if o.option.order_by]
+        return Basket(
+            id=first.basket_id or first.id,
+            title=first.basket_title or first.option.title,
             status=status,
             status_reason=status_reason,
-            agent_id=agent.agent_id,
-            buyer_id=agent.buyer_id,
-            buyer_name=agent.buyer_name,
-            need_text=request.need.text,
-            option=option.model_copy(update={"policy": policy}),
-            policy=policy,
-            agent_note=note,
-            approvers=agent.mandate.approvers,
+            total=round(sum(o.option.total for o in live), 2),
+            total_with_tax=round(sum(o.option.total_with_tax for o in live), 2),
+            approvers=first.approvers,
+            order_by=min(cut_offs) if cut_offs else None,
+            orders=orders,
+            left_out=list(left_out),
         )
-        self.store.save_order(order)
 
-        def log(type_: str, summary: str, detail: dict | None = None) -> None:
-            self.store.add_event(
-                "system", type_, summary, request_id=request_id, order_id=order.id, detail=detail
-            )
-
-        log("policy.evaluated", policy.summary, {"rules": [r.model_dump() for r in policy.rules]})
-        if status == "confirmed":
-            log(
-                "order.confirmed",
-                f"Order {order.id} confirmed without human involvement: {option.total:.2f} EUR "
-                f"({option.total_with_tax:.2f} with VAT), delivery {day(option.delivery_date)}.",
-            )
-        elif status == "pending_approval":
-            approvers = " or ".join(agent.mandate.approvers) or "the buyer"
-            log("approval.requested", f"Order {order.id} is held until {approvers} decides.")
-        else:
-            log(
-                "order.denied",
-                f"Order {order.id} was refused. "
-                "A mandate refusal cannot be overridden by approval.",
-            )
-        return order
+    def get_basket(self, agent: AgentIdentity, basket_id: str) -> Basket:
+        orders = [
+            order
+            for order in self.store.list_orders(buyer_id=agent.buyer_id)
+            if order.basket_id == basket_id
+        ]
+        if not orders:
+            raise ServiceError("not_found", f"No basket {basket_id!r}.", 404)
+        left_out = [
+            LeftOut(request_id=r.id, asked=self._asked(r), reason=r.closed_reason or "")
+            for r in self.store.requests_of(agent.buyer_id)
+            if r.basket_id == basket_id and r.closed_as == "left_out"
+        ]
+        return self._basket(sorted(orders, key=lambda order: order.id), left_out)
 
     def get_order(self, agent: AgentIdentity, order_id: str) -> Order:
         order = self.store.get_order(order_id)
@@ -647,6 +962,7 @@ class PurchasingService:
     async def decide(
         self, order_id: str, *, approver: str, approved: bool, comment: str | None = None
     ) -> Order:
+        """A human's decision on an order. For an order of a basket it covers the whole basket."""
         order = self.store.get_order(order_id)
         if order is None:
             raise ServiceError("not_found", f"No order {order_id!r}.", 404)
@@ -654,45 +970,68 @@ class PurchasingService:
             raise ServiceError(
                 "not_pending", f"{order_id} is {order.status}, not waiting for approval.", 409
             )
-        request = self.store.get_request(order.request_id)
-        assert request is not None
-        order.approval = Approval(
+        together = [order]
+        if order.basket_id:
+            together = [
+                other
+                for other in self.store.list_orders(status="pending_approval")
+                if other.basket_id == order.basket_id
+            ]
+        title = f' of "{order.basket_title}"' if order.basket_id else ""
+        remark = f' Comment: "{comment}"' if comment else ""
+        decision = Approval(
             approver=approver, approved=approved, comment=comment, decided_at=datetime.now(UTC)
         )
-        remark = f' Comment: "{comment}"' if comment else ""
 
-        def log(actor: str, type_: str, summary: str) -> None:
-            self.store.add_event(
-                actor, type_, summary, request_id=order.request_id, order_id=order.id
-            )
+        def log(o: Order, actor: str, type_: str, summary: str) -> None:
+            self.store.add_event(actor, type_, summary, request_id=o.request_id, order_id=o.id)
 
         if not approved:
-            order.status = "rejected"
-            order.status_reason = f"Rejected by {approver}."
-            log(
-                f"human:{approver}", "approval.rejected", f"{approver} rejected {order.id}.{remark}"
-            )
-            self.store.save_order(order)
-            return order
+            for o in together:
+                o.approval = decision
+                o.status, o.status_reason = "rejected", f"Rejected by {approver}."
+                log(
+                    o,
+                    f"human:{approver}",
+                    "approval.rejected",
+                    f"{approver} rejected {o.id}{title}.{remark}",
+                )
+                self.store.save_order(o)
+            return next(o for o in together if o.id == order_id)
 
-        log(f"human:{approver}", "approval.granted", f"{approver} approved {order.id}.{remark}")
-        problems = await self._revalidate(request.need, order.option, holds_stock=True)
-        if problems:
-            order.status = "expired"
-            order.status_reason = f"Approved too late: {'; '.join(problems)}."
-            log("system", "order.expired", f"Order {order.id} expired. {order.status_reason}")
-        else:
-            order.status = "confirmed"
-            order.status_reason = f"Confirmed after approval by {approver}."
+        # Re-check every offer before committing to any: a basket is confirmed whole or not at all.
+        problems: list[str] = []
+        for o in together:
+            request = self.store.get_request(o.request_id)
+            assert request is not None
+            problems += await self._revalidate(request.need, o.option, holds_stock=True)
+        for o in together:
+            o.approval = decision
             log(
-                "system",
-                "order.confirmed",
-                f"Order {order.id} confirmed after human approval: {order.option.total:.2f} EUR "
-                f"({order.option.total_with_tax:.2f} with VAT), delivery "
-                f"{day(order.option.delivery_date)}.",
+                o,
+                f"human:{approver}",
+                "approval.granted",
+                f"{approver} approved {o.id}{title}.{remark}",
             )
-        self.store.save_order(order)
-        return order
+            if problems:
+                o.status = "expired"
+                o.status_reason = f"Approved too late: {'; '.join(problems)}."
+                if len(together) > 1:
+                    o.status_reason += " Nothing in the basket was ordered."
+                log(o, "system", "order.expired", f"Order {o.id} expired. {o.status_reason}")
+            else:
+                o.status = "confirmed"
+                o.status_reason = f"Confirmed after approval by {approver}."
+                log(
+                    o,
+                    "system",
+                    "order.confirmed",
+                    f"Order {o.id} confirmed after human approval: {o.option.total:.2f} EUR "
+                    f"({o.option.total_with_tax:.2f} with VAT), delivery "
+                    f"{day(o.option.delivery_date)}.",
+                )
+            self.store.save_order(o)
+        return next(o for o in together if o.id == order_id)
 
     # Audit
 

@@ -1,6 +1,6 @@
 # Matching precision
 
-Run 2026-11-14 15:19 UTC against the live mock API, delivery by Mon 16 Nov 2026. Produced by `uv run python -m aimo_agent.evaluate --write`.
+Run 2026-11-14 21:23 UTC against the live mock API, delivery by Mon 16 Nov 2026. Produced by `uv run python -m aimo_agent.evaluate --write`.
 
 22 buyer requests, each stated to the gateway exactly as worded. Only the top-ranked option is judged.
 
@@ -17,7 +17,7 @@ Run 2026-11-14 15:19 UTC against the live mock API, delivery by Mon 16 Nov 2026.
 | whipping-cream | 40 litres of lactose-free whipping cream. | correct | Valio food service whipping cream 1,75 l lactose free (134.09 EUR) |  |
 | butter | 25 kg of butter. | correct | Valio butter 500 g unsalted (165.00 EUR) |  |
 | natural-yoghurt | 50 kg of natural yoghurt, lactose-free. | correct | Valio A+™ natural yoghurt 1 kg lactose free (107.50 EUR) |  |
-| eggs | 30 kg of eggs. | correct | Kieku Barn Eggs L180 12300g (93.03 EUR) |  |
+| eggs | 30 kg of eggs. | correct | Kieku Barn eggs S90 4320g (83.09 EUR) |  |
 | gluten-free-pasta | 30 kg of gluten-free pasta. | correct | SamMills Pasta D'oro 500g Penne naturally glutenfree pasta (126.00 EUR) |  |
 | basmati-rice | 100 kg of basmati rice. | correct | GOHAR 5KG STEAMED BASMATI RICE (241.20 EUR) |  |
 | wheat-flour | 100 kg of wheat flour. | correct | Fazer semi-coarse wheat flour 20 kg (50.60 EUR) |  |
@@ -26,7 +26,7 @@ Run 2026-11-14 15:19 UTC against the live mock API, delivery by Mon 16 Nov 2026.
 | nut-free-granola | 10 kg of granola, it must not contain nuts. | correct | URTEKRAM Granolamix Unroasted Organic 700g (65.10 EUR) |  |
 | olive-oil | 20 litres of extra virgin olive oil. | correct | LUGLIO 5L EXTRA VIRGIN OLIVE OIL (156.84 EUR) |  |
 | rapeseed-oil | 40 litres of rapeseed oil for the fryers. | correct | FRYLIX 10L RAPESEED OIL (75.68 EUR) |  |
-| orange-juice | 100 litres of orange juice. | correct | 12 x Vip orange juice 1l (273.96 EUR) |  |
+| orange-juice | 100 litres of orange juice. | correct | Valio orange juice 1 l traditional (265.00 EUR) |  |
 | crushed-tomatoes | 40 kg of crushed tomatoes. | correct | BRAVO CHEF 10KG CRUSHED TOMATOES BIB (60.84 EUR) |  |
 | potatoes | 200 kg of washed potatoes. | correct | PP STARCHY POTATOES 2KG BAG PRE-WASHED (133.00 EUR) |  |
 | chicken-breast | 60 kg of plain chicken breast fillet. | correct | Seara  Chicken breast fillet 140g+ salt 1,2%+ 2kg frozen (466.80 EUR) |  |

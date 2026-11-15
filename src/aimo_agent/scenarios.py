@@ -10,7 +10,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from aimo_agent.demo_agent import next_monday
-from aimo_agent.models import AgentIdentity, Need
+from aimo_agent.models import AgentIdentity, LeftOutItem, Need, Option, PurchaseRequest
 from aimo_agent.service import PurchasingService
 
 _PLAIN_MILK = ["sour", "coffee", "latte", "portion", "cafè"]
@@ -21,11 +21,13 @@ class Scenario(BaseModel):
     title: str
     shows: str
     needs: list[dict[str, Any]]
+    basket: str | None = None  # set: the needs are asked for at once and ordered as one basket
 
 
 class ScenarioResult(BaseModel):
     request_id: str
     order_id: str | None = None
+    basket_id: str | None = None
     status: str
 
 
@@ -111,29 +113,123 @@ SCENARIOS = [
             }
         ],
     ),
+    Scenario(
+        id="event",
+        title="Wedding dinner for 120, as one basket",
+        shows="Seven needs in one call, six orderable products in one order. Each is within "
+        "the limit, together they are not: the whole basket waits for one approval. The salmon "
+        "cannot arrive in time and is flagged, not swapped.",
+        basket="Wedding dinner for 120 on Monday",
+        needs=[
+            {
+                "text": "50 kg of beef for the braise",
+                "query": "beef",
+                "exclude_terms": ["pork", "broth", "stock", "bouillon", "cooked", "meatball"],
+                "quantity": 50,
+                "unit": "kg",
+            },
+            {
+                "text": "60 kg of potatoes",
+                "query": "potato",
+                "category": "17421",
+                "quantity": 60,
+                "unit": "kg",
+            },
+            {
+                "text": "30 litres of lactose-free cream for the sauce",
+                "query": "cream",
+                "free_from": ["lactose"],
+                "exclude_terms": ["sour", "ice", "cheese", "alternative", "coffee", "spray"],
+                "quantity": 30,
+                "unit": "L",
+            },
+            {
+                "text": "10 kg of butter",
+                "query": "butter",
+                "category": "10500",
+                "quantity": 10,
+                "unit": "kg",
+            },
+            {
+                "text": "20 kg of onions",
+                "query": "onion",
+                "category": "17405",
+                "quantity": 20,
+                "unit": "kg",
+            },
+            {
+                "text": "10 kg of lingonberries",
+                "query": "lingonberry",
+                "exclude_terms": ["juice", "drink", "jam"],
+                "quantity": 10,
+                "unit": "kg",
+            },
+            {
+                "text": "15 kg of salmon fillet for the starter",
+                "query": "salmon fillet",
+                "quantity": 15,
+                "unit": "kg",
+            },
+        ],
+    ),
 ]
+
+
+def _choice(request: PurchaseRequest) -> Option | None:
+    """The top-ranked option the mandate does not forbid."""
+    return next((o for o in request.options if o.policy and o.policy.decision != "deny"), None)
+
+
+def _why(option: Option) -> str:
+    return (
+        f"Top-ranked option ({option.tier}): covers {option.coverage_pct:g}% of the need, "
+        f"delivery {option.delivery_date}, and the mandate does not forbid it."
+    )
 
 
 async def run_scenario(
     service: PurchasingService, agent: AgentIdentity, scenario: Scenario, today: date
 ) -> list[ScenarioResult]:
+    needs = [Need(**fields, deliver_by=next_monday(today)) for fields in scenario.needs]
+    if scenario.basket:
+        return await _run_basket(service, agent, scenario.basket, needs)
     results = []
-    for fields in scenario.needs:
-        request = await service.create_request(agent, Need(**fields, deliver_by=next_monday(today)))
-        choice = next(
-            (o for o in request.options if o.policy and o.policy.decision != "deny"), None
-        )
+    for need in needs:
+        request = await service.create_request(agent, need)
+        choice = _choice(request)
         if choice is None:
             results.append(ScenarioResult(request_id=request.id, status="nothing_orderable"))
             continue
-        order = await service.place_order(
-            agent,
-            request.id,
-            choice.id,
-            f"Top-ranked option ({choice.tier}): covers {choice.coverage_pct:g}% of the need, "
-            f"delivery {choice.delivery_date}, and the mandate does not forbid it.",
-        )
+        order = await service.place_order(agent, request.id, choice.id, _why(choice))
         results.append(
             ScenarioResult(request_id=request.id, order_id=order.id, status=order.status)
         )
     return results
+
+
+async def _run_basket(
+    service: PurchasingService, agent: AgentIdentity, title: str, needs: list[Need]
+) -> list[ScenarioResult]:
+    """Two calls, as an agent with a list makes them: all needs at once, then one basket."""
+    requests = await service.create_requests(agent, needs)
+    chosen = [(request, _choice(request)) for request in requests]
+    items = [(request.id, option.id) for request, option in chosen if option]
+    missing = [request.need.text or request.need.query for request, option in chosen if not option]
+    results = [
+        ScenarioResult(request_id=request.id, status="nothing_orderable")
+        for request, option in chosen
+        if option is None
+    ]
+    if not items:
+        return results
+    note = f"The top-ranked option for each of the {len(items)} products that can arrive in time."
+    if missing:
+        note += f" Not orderable by the date, left for the buyer: {'; '.join(missing)}."
+    gaps = [LeftOutItem(request_id=request.id) for request, option in chosen if option is None]
+    basket = await service.place_basket(agent, items, title, note, gaps)
+    return [
+        ScenarioResult(
+            request_id=order.request_id, order_id=order.id, basket_id=basket.id, status=order.status
+        )
+        for order in basket.orders
+    ] + results

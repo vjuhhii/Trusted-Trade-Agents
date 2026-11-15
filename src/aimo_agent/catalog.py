@@ -17,7 +17,7 @@ from aimo_agent.config import DATA_DIR
 from aimo_agent.datasets import CARBON_FOOTPRINT_FILE, DELIVERY_RELIABILITY_FILE, PRODUCTS_FILE
 
 CACHE_FILE = DATA_DIR / "catalog.cache.json"
-CACHE_VERSION = 1
+CACHE_VERSION = 2
 
 # Dietary vocabulary offered to agents: name -> (nutritional claim id, GS1 allergen code).
 # A product is "free from X" only when its data says so explicitly, through the claim or
@@ -86,6 +86,22 @@ class Product(BaseModel):
     carbon_kg_co2e_per_kg: float | None = Field(
         None, description="Average footprint of the product group, kg CO2e per kg"
     )
+    net_content: dict[str, float] = Field(
+        default_factory=dict,
+        description="Declared net content of one base unit, in KG and/or L (GS1 product data)",
+    )
+
+    def declared_content(self, unit: str) -> float | None:
+        """KG or L in one sales unit as the product data declares it, None when it does not."""
+        size = self.units.get(self.sales_unit) or (
+            1.0 if self.sales_unit == self.base_unit else None
+        )
+        if self.base_unit == "KG":
+            # Sold by weight: sizes are in kilograms already. The net weight in the data then
+            # describes one piece (a 1.8 kg ham), not one base unit.
+            return size if unit == "KG" else None
+        per_base = self.net_content.get(unit)
+        return round(per_base * size, 6) if per_base and size else None
 
     def is_free_from(self, substance: str) -> bool:
         """True only when the product data explicitly declares it free from the substance."""
@@ -261,6 +277,33 @@ def _group(raw: dict, name: str) -> list[dict]:
     return []
 
 
+# GS1 unit codes of declared weights and volumes -> (our unit, factor).
+_MEASURES = {
+    "GRM": ("KG", 0.001),
+    "KGM": ("KG", 1.0),
+    "MLT": ("L", 0.001),
+    "CLT": ("L", 0.01),
+    "DLT": ("L", 0.1),
+    "LTR": ("L", 1.0),
+}
+
+
+def _net_content(synkka: dict) -> dict[str, float]:
+    """Net weight and volume of one base unit, from the GS1 packaging data."""
+    content: dict[str, float] = {}
+    for packaging in synkka.get("unitConversions") or []:
+        if packaging.get("synkkaPackagingType") != "BASE_UNIT_OR_EACH":
+            continue
+        # `netWeight` is a weight; `volume` is the declared net content, in grams or litres.
+        for field in ("netWeight", "volume"):
+            measure = packaging.get(field) or {}
+            unit, factor = _MEASURES.get(measure.get("unit") or "", (None, 0.0))
+            value = measure.get("value")
+            if unit and isinstance(value, int | float) and value > 0:
+                content.setdefault(unit, round(value * factor, 6))
+    return content
+
+
 def _slim(raw: dict, reliability: dict[str, float], carbon: dict[str, float]) -> Product:
     synkka = raw["synkkaData"]
     names = {n["language"]: n["value"].strip() for n in synkka.get("names", []) if n["value"]}
@@ -292,6 +335,7 @@ def _slim(raw: dict, reliability: dict[str, float], carbon: dict[str, float]) ->
         substitutes=[s["substituteProduct"] for s in raw.get("substitutions", [])],
         delivery_reliability=reliability.get(raw["id"]),
         carbon_kg_co2e_per_kg=carbon.get(raw["id"]),
+        net_content=_net_content(synkka),
     )
 
 

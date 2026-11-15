@@ -184,6 +184,48 @@ def evaluate_policy(
             else "All products are in categories the agent may buy from.",
         )
 
+    return _verdict(rules)
+
+
+def add_basket_limit(
+    policy: PolicyDecision,
+    mandate: Mandate,
+    option: Option,
+    *,
+    basket_total: float,
+    basket_orders: int,
+    already_spent: float = 0.0,
+    earlier_orders: Sequence[str] = (),
+) -> PolicyDecision:
+    """Apply the spend limit to a whole basket as well as to one of its orders.
+
+    `basket_total` is what the basket's `basket_orders` orders for the option's delivery day
+    cost together. A basket that is over the limit is held as a whole, however small its parts.
+    """
+    limit = f"{mandate.max_autonomous_spend:.2f} EUR per delivery day"
+    day_total = round(basket_total + already_spent, 2)
+    subject = (
+        f"Together the basket's {basket_orders} orders for {day(option.delivery_date)} come "
+        f"to {basket_total:.2f} EUR"
+    )
+    if already_spent:
+        subject += (
+            f", plus {already_spent:.2f} EUR the agent already ordered on its own "
+            f"({', '.join(earlier_orders)}): {day_total:.2f} EUR in all, which"
+        )
+    else:
+        subject += ", which"
+    over = day_total > mandate.max_autonomous_spend
+    rule = RuleResult(
+        rule="basket_spend_limit",
+        outcome="needs_approval" if over else "pass",
+        message=f"{subject} {'exceeds' if over else 'is within'} the agent's limit of {limit}.",
+    )
+    return _verdict([*policy.rules, rule])
+
+
+def _verdict(rules: list[RuleResult]) -> PolicyDecision:
+    """The worst outcome decides."""
     denied = [r.message for r in rules if r.outcome == "deny"]
     escalated = [r.message for r in rules if r.outcome == "needs_approval"]
     if denied:

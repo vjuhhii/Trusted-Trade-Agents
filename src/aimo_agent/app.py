@@ -19,11 +19,23 @@ from aimo_agent.agents import get_agents, update_mandate
 from aimo_agent.catalog import Product, SearchFilters, SearchResult
 from aimo_agent.config import settings
 from aimo_agent.mcp_server import mcp
-from aimo_agent.models import AgentIdentity, AuditEvent, Need, Offer, Order, PurchaseRequest
+from aimo_agent.models import (
+    AgentIdentity,
+    AuditEvent,
+    Basket,
+    BasketItem,
+    LeftOutItem,
+    Need,
+    Offer,
+    Order,
+    PurchaseRequest,
+)
 from aimo_agent.scenarios import SCENARIOS, Scenario, ScenarioResult, run_scenario
 from aimo_agent.service import PurchasingService, ServiceError, get_service
 
 WEB_DIR = Path(__file__).parent / "web"
+# The pages change with the code; a browser must not keep showing an old one.
+_REVALIDATE = {"Cache-Control": "no-cache"}
 
 DESCRIPTION = """
 An open interface through which an external purchasing agent works with a food-service
@@ -186,6 +198,45 @@ def read_order_audit(order_id: str, service: Service, agent: Agent) -> list[Audi
     return service.audit_trail(agent, order_id=order_id)
 
 
+class BasketRequest(BaseModel):
+    items: list[BasketItem] = Field(min_length=1, max_length=15)
+    title: str = Field(min_length=1, description="What the basket is for, in a few words")
+    note: str | None = Field(None, description="Why these options. Kept in the audit trail")
+    left_out: list[LeftOutItem] = Field(
+        default_factory=list,
+        description="Needs that could not be filled, so the buyer sees them. Other requests "
+        "without an order since the agent's previous order are closed as replaced",
+    )
+
+
+@app.post(
+    "/v1/requests/batch",
+    tags=["Agent"],
+    status_code=201,
+    summary="State several needs at once, e.g. the ingredients of a menu",
+)
+async def create_requests(
+    needs: Annotated[list[Need], Field(min_length=1, max_length=15)], service: Service, agent: Agent
+) -> list[PurchaseRequest]:
+    return await service.create_requests(agent, needs)
+
+
+@app.post(
+    "/v1/baskets",
+    tags=["Agent"],
+    status_code=201,
+    summary="Order one option from each of several requests as a whole",
+)
+async def place_basket(body: BasketRequest, service: Service, agent: Agent) -> Basket:
+    items = [(item.request_id, item.option_id) for item in body.items]
+    return await service.place_basket(agent, items, body.title, body.note, body.left_out)
+
+
+@app.get("/v1/baskets/{basket_id}", tags=["Agent"], summary="Basket status")
+def read_basket(basket_id: str, service: Service, agent: Agent) -> Basket:
+    return service.get_basket(agent, basket_id)
+
+
 # Approval desk
 
 
@@ -320,13 +371,13 @@ def health() -> dict[str, object]:
 @app.get("/", include_in_schema=False)
 def kitchen() -> FileResponse:
     """What the buyer's people see: plain words, one decision at a time."""
-    return FileResponse(WEB_DIR / "kitchen.html")
+    return FileResponse(WEB_DIR / "kitchen.html", headers=_REVALIDATE)
 
 
 @app.get("/console", include_in_schema=False)
 def console() -> FileResponse:
     """The same data for those who want to see how it works: all three parties, in detail."""
-    return FileResponse(WEB_DIR / "index.html")
+    return FileResponse(WEB_DIR / "index.html", headers=_REVALIDATE)
 
 
 # MCP over Streamable HTTP at /mcp. Mounted last so the routes above take precedence.

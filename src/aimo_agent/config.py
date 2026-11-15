@@ -17,7 +17,10 @@ class Settings(BaseSettings):
 
     # This service.
     aimo_db_path: Path = DATA_DIR / "purchasing.sqlite3"
-    aimo_agents_file: Path = PROJECT_ROOT / "mandates.json"
+    # Agents and their mandates. The repository file holds the defaults; the working copy,
+    # which the kitchen view edits, lives with the other runtime data.
+    aimo_agents_defaults: Path = PROJECT_ROOT / "mandates.json"
+    aimo_agents_file: Path = DATA_DIR / "mandates.json"
     # Ed25519 key the gateway signs offers with. Created on first start.
     aimo_signing_key_file: Path = DATA_DIR / "signing_key.pem"
     # Identity the stdio MCP server acts as. An HTTP client sends its own bearer token instead.

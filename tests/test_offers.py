@@ -140,6 +140,42 @@ def test_late_delivery_is_offered_last_as_a_compromise() -> None:
     ]
 
 
+def pack(product_id: str, per_litre: float, litres: float) -> Offer:
+    product = make_product(product_id, f"Milk {product_id}")
+    return evaluate_offer(
+        product,
+        make_price(product_id, round(per_litre * litres, 2), per_litre),
+        make_availability(product_id),
+        quantity=25,
+        unit="L",
+        deliver_by=MONDAY,
+        now=NOW,
+    )
+
+
+def test_price_ranks_what_the_buyer_pays_for_the_quantity_asked() -> None:
+    # 25 l: 2 x 15 l is 30 l for 27.00; 13 x 2 l is 26 l for 26.00, cheaper though dearer per litre.
+    options = build_options([pack("box", 0.9, 15), pack("bag", 1.0, 2)], need(quantity=25))
+    assert [(o.lines[0].product_id, o.quantity_covered, o.total) for o in options] == [
+        ("bag", 26, 26.0),
+        ("box", 30, 27.0),
+    ]
+
+
+def test_a_cheaper_pack_that_overshoots_still_ranks_first_and_the_mandate_asks(
+    catalog: Catalog,
+) -> None:
+    # The box is cheaper even for 30 l (24.00 against 26.00), though 20% more than asked. The
+    # agent should not pay more to avoid asking: the box comes first, and a human decides.
+    request = need(quantity=25)
+    top = build_options([pack("box", 0.8, 15), pack("bag", 1.0, 2)], request)[0]
+    assert (top.lines[0].product_id, top.total) == ("box", 24.0)
+    verdict = evaluate_policy(Mandate(max_autonomous_spend=1000), request, top, catalog)
+    (quantity,) = [rule for rule in verdict.rules if rule.rule == "quantity"]
+    assert quantity.outcome == "needs_approval"
+    assert "overshoot the quantity by 20.0%" in quantity.message
+
+
 def test_preference_changes_the_ranking() -> None:
     cheap = priced("a", 1.0)
     reliable = priced("b", 1.5)
@@ -220,3 +256,64 @@ def test_category_scope_limits_what_the_agent_buys_alone(catalog: Catalog) -> No
     assert decide(catalog, dairy_only, [priced("100", 1.0)]).decision == "auto_approve"
     other = priced("105", 1.0)  # category 22540 in the catalog
     assert outcomes(decide(catalog, dairy_only, [other]))["category_scope"] == "needs_approval"
+
+
+# Pack content when the price list has no price per kg or litre
+
+SUGAR = make_product(
+    "460325",
+    "Dansukker Caster Sugar 1kg",
+    sales_unit="BAG",
+    base_unit="BAG",
+    units={"BAG": 1.0, "KI": 10.0},
+    net_content={"KG": 1.0},
+)
+
+
+def test_declared_net_content_sizes_a_product_priced_per_unit_only() -> None:
+    offer = evaluate_offer(
+        SUGAR,
+        make_price("460325", 1.55),  # no comparison price
+        make_availability("460325"),
+        quantity=2,
+        unit="KG",
+        deliver_by=MONDAY,
+        now=NOW,
+    )
+    assert (offer.status, offer.content_per_unit, offer.units_needed) == ("available", 1.0, 2)
+    assert offer.content_source == "product_data"
+    (option,) = build_options([offer], need(query="sugar", quantity=2, unit="KG"))
+    assert option.trade_offs == [
+        "Dansukker Caster Sugar 1kg: 1 kg per BAG as the product data declares it; "
+        "the price list gives no price per kg."
+    ]
+
+
+def test_without_a_comparison_price_or_declared_content_the_product_is_not_sized() -> None:
+    bare = make_product("1", "Sugar bag", sales_unit="BAG", base_unit="BAG", units={"BAG": 1.0})
+    offer = evaluate_offer(
+        bare,
+        make_price("1", 1.55),
+        make_availability("1"),
+        quantity=2,
+        unit="KG",
+        deliver_by=MONDAY,
+        now=NOW,
+    )
+    assert offer.status == "unit_mismatch"
+
+
+def test_declared_content_follows_the_sales_unit() -> None:
+    case = SUGAR.model_copy(update={"sales_unit": "KI"})
+    assert (SUGAR.declared_content("KG"), case.declared_content("KG")) == (1.0, 10.0)
+    assert SUGAR.declared_content("L") is None
+    # Sold by weight: the size is in kg already; the net weight of one piece does not apply.
+    ham = make_product(
+        "2",
+        "Ham about 1,8kg",
+        sales_unit="KG",
+        base_unit="KG",
+        units={"KG": 1.0, "ST": 1.8},
+        net_content={"KG": 1.8},
+    )
+    assert ham.declared_content("KG") == 1.0

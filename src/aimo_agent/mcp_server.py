@@ -4,20 +4,33 @@ stdio (the agent host launches it):  uv run python -m aimo_agent.mcp_server
 Streamable HTTP:                     served by the REST app at /mcp
 """
 
+from collections import Counter
 from collections.abc import Callable
-from datetime import date
+from datetime import date, datetime
 from functools import wraps
 from typing import Annotated, Any, Literal
 
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import ToolAnnotations
-from pydantic import Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from aimo_agent.agents import get_agents
 from aimo_agent.catalog import DIETARY, Product, SearchFilters, SearchResult
 from aimo_agent.config import settings
-from aimo_agent.models import AgentIdentity, AuditEvent, Need, Offer, Order, PurchaseRequest
+from aimo_agent.models import (
+    AgentIdentity,
+    AuditEvent,
+    Basket,
+    BasketItem,
+    LeftOut,
+    LeftOutItem,
+    Need,
+    Offer,
+    Option,
+    Order,
+    PurchaseRequest,
+)
 from aimo_agent.service import ServiceError, get_service
 
 INSTRUCTIONS = """\
@@ -37,6 +50,12 @@ How to buy:
    how the request reaches the approver, and nothing is committed until a human approves. Do
    not ask the buyer for permission first. Report who has to approve and by when (`order_by`).
 5. get_order and get_audit_trail: follow up and show what happened.
+
+More than one product (a menu, an event, a weekly list): work out the products and quantities,
+then call request_options_for_list and place_basket once. The basket is decided as a whole:
+confirmed together, or held together for one approval. Do not order such items one by one.
+Retrying a need with better words is fine. A need you could not fill goes into place_basket's
+`left_out`, so the buyer sees it; requests you replaced are closed for you.
 
 Rules of the road:
 - Prices are fixed and in EUR without VAT unless a field says otherwise. There is no negotiation.
@@ -265,6 +284,162 @@ async def place_order(
     submitting is the way to ask for approval. `denied` means the mandate forbids the order
     and approval cannot override it."""
     return await get_service().place_order(_agent(ctx), request_id, option_id, reason)
+
+
+class OptionsDigest(BaseModel):
+    """One need of a list with its orderable options, shortened to what a choice needs."""
+
+    request_id: str
+    asked: str
+    notes: list[str]
+    options: list[Option]
+    not_orderable: dict[str, int] = Field(description="Matching products left out, by reason")
+
+
+class OrderDigest(BaseModel):
+    order_id: str
+    request_id: str
+    status: str
+    status_reason: str
+    title: str
+    total: float
+    delivery_date: date
+
+
+class BasketDigest(BaseModel):
+    basket_id: str
+    title: str
+    status: str = Field(description="confirmed, pending_approval or closed")
+    status_reason: str
+    total: float
+    total_with_tax: float
+    approvers: list[str]
+    order_by: datetime | None
+    orders: list[OrderDigest]
+    left_out: list[LeftOut]
+
+
+def _basket_digest(basket: Basket) -> BasketDigest:
+    return BasketDigest(
+        basket_id=basket.id,
+        title=basket.title,
+        status=basket.status,
+        status_reason=basket.status_reason,
+        total=basket.total,
+        total_with_tax=basket.total_with_tax,
+        approvers=basket.approvers,
+        order_by=basket.order_by,
+        orders=[
+            OrderDigest(
+                order_id=order.id,
+                request_id=order.request_id,
+                status=order.status,
+                status_reason=order.status_reason,
+                title=order.option.title,
+                total=order.option.total,
+                delivery_date=order.option.delivery_date,
+            )
+            for order in basket.orders
+        ],
+        left_out=basket.left_out,
+    )
+
+
+@mcp.tool(title="State several needs at once", annotations=RECORDS)
+@_reported
+async def request_options_for_list(
+    ctx: Context,
+    needs: Annotated[
+        list[Need],
+        Field(
+            min_length=1,
+            max_length=15,
+            description="One entry per product needed. The fields are those of "
+            "request_options; `text` holds the buyer's words for that product",
+        ),
+    ],
+) -> list[OptionsDigest]:
+    """Use this whenever more than one product is needed: a menu, an event, a weekly list.
+
+    One call answers every need. Each entry has a `request_id` and its ranked options, in a
+    short form: only the mandate rules that are not passed are listed, and the signature is
+    left out (it comes with the order). Then call place_basket with one option per request."""
+    requests = await get_service().create_requests(_agent(ctx), needs)
+    digests = []
+    for request in requests:
+        options = [
+            option.model_copy(
+                update={
+                    "proof": None,
+                    "policy": option.policy.model_copy(
+                        update={"rules": [r for r in option.policy.rules if r.outcome != "pass"]}
+                    )
+                    if option.policy
+                    else None,
+                }
+            )
+            for option in request.options
+        ]
+        need = request.need
+        digests.append(
+            OptionsDigest(
+                request_id=request.id,
+                asked=need.text or need.query or need.product_id or "",
+                notes=request.notes,
+                options=options,
+                not_orderable=dict(Counter(e.status for e in request.excluded)),
+            )
+        )
+    return digests
+
+
+@mcp.tool(title="Order several options as one basket", annotations=RECORDS)
+@_reported
+async def place_basket(
+    ctx: Context,
+    items: Annotated[list[BasketItem], Field(min_length=1, max_length=15)],
+    title: Annotated[
+        str,
+        Field(
+            description="What the basket is for, in a few words the approver will recognise, "
+            "e.g. 'Dinner for 80 guests on Monday'"
+        ),
+    ],
+    reason: Annotated[
+        str, Field(description="Why these options, in a sentence. Stored in the audit trail")
+    ],
+    left_out: Annotated[
+        list[LeftOutItem],
+        Field(
+            description="Needs of the list you could not fill, by request, so the buyer sees "
+            "them, e.g. nothing arrives in time. Leave out requests you merely replaced"
+        ),
+    ] = [],  # noqa: B006
+) -> BasketDigest:
+    """Order one option from each of several requests as a whole.
+
+    The mandate is applied to every item and the spend limit to their sum. A basket is all or
+    nothing: if everything is within your authority, everything is confirmed; if any item needs
+    approval, the whole basket is held for one human decision. Nothing is ordered if any offer
+    changed in the meantime. Use this instead of placing the items one by one.
+
+    Placing the basket closes your other requests made since your previous order that have no
+    order: those in `left_out` are reported to the buyer, the rest are closed as replaced."""
+    basket = await get_service().place_basket(
+        _agent(ctx),
+        [(item.request_id, item.option_id) for item in items],
+        title,
+        reason,
+        left_out,
+    )
+    return _basket_digest(basket)
+
+
+@mcp.tool(title="Read a basket", annotations=READS)
+@_reported
+def get_basket(ctx: Context, basket_id: str) -> BasketDigest:
+    """Current status of a basket and of each order in it."""
+    return _basket_digest(get_service().get_basket(_agent(ctx), basket_id))
 
 
 @mcp.tool(title="Read an order", annotations=READS)

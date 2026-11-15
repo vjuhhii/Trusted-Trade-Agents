@@ -107,6 +107,33 @@ def test_request_order_approve_flow_over_http(client: TestClient) -> None:
     }
 
 
+def test_basket_flow_over_http_takes_three_calls(client: TestClient) -> None:
+    oat = {"text": "Oat drink", "query": "oat drink", "quantity": 400, "deliver_by": "2026-11-16"}
+    requests = client.post(
+        "/v1/requests/batch", json=[MILK | {"quantity": 400}, oat], headers=HOTEL
+    )
+    assert requests.status_code == 201
+    items = [{"request_id": r["id"], "option_id": "opt-1"} for r in requests.json()]
+
+    basket = client.post(
+        "/v1/baskets", json={"items": items, "title": "Banquet", "note": "Menu"}, headers=HOTEL
+    )
+    assert basket.status_code == 201
+    body = basket.json()
+    assert (body["id"], body["status"], body["total"]) == ("BK-0001", "pending_approval", 1124.0)
+
+    # One decision on any order of the basket decides all of it.
+    first = body["orders"][0]["id"]
+    client.post(
+        f"/v1/desk/orders/{first}/decision", json={"approver": "Head chef", "approved": True}
+    )
+    after = client.get("/v1/baskets/BK-0001", headers=HOTEL).json()
+    assert [o["status"] for o in after["orders"]] == ["confirmed", "confirmed"]
+    assert client.get("/v1/baskets/BK-0001", headers=SCHOOL).status_code == 404
+    empty = client.post("/v1/baskets", json={"items": [], "title": "x"}, headers=HOTEL)
+    assert empty.status_code == 422
+
+
 def test_errors_are_problem_details(client: TestClient) -> None:
     request = client.post("/v1/requests", json=MILK | {"quantity": 100}, headers=HOTEL).json()
 
@@ -181,7 +208,7 @@ def test_mandate_change_is_stored_logged_and_seen_at_once(
     service: PurchasingService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     registry = tmp_path / "mandates.json"
-    shutil.copy(settings.aimo_agents_file, registry)
+    shutil.copy(settings.aimo_agents_defaults, registry)
     monkeypatch.setattr(settings, "aimo_agents_file", registry)
     app.dependency_overrides[get_service] = lambda: service
     try:
@@ -203,3 +230,8 @@ def test_mandate_change_is_stored_logged_and_seen_at_once(
         assert desk.patch("/v1/desk/mandates/nobody", json={}).status_code == 404
     finally:
         app.dependency_overrides.clear()
+
+
+def test_pages_are_revalidated_so_a_demo_never_shows_an_old_one(client: TestClient) -> None:
+    for page in ("/", "/console"):
+        assert client.get(page).headers["cache-control"] == "no-cache"

@@ -78,6 +78,11 @@ class Offer(BaseModel):
     content_per_unit: float | None = Field(
         None, description="Requested units (L or KG) contained in one sales unit"
     )
+    content_source: Literal["price_list", "product_data"] | None = Field(
+        None,
+        description="Where content_per_unit comes from: the price list's comparison price, or "
+        "the net content declared in the product data when the price list has none",
+    )
     price_valid_to: datetime | None = None
 
     logistic_model: str | None = Field(
@@ -219,6 +224,13 @@ class PurchaseRequest(BaseModel):
     excluded: list[Excluded] = Field(
         default_factory=list, description="Matching products that cannot be ordered, with reasons"
     )
+    closed_as: Literal["left_out", "superseded"] | None = Field(
+        None,
+        description="Set when a basket was placed without this request. left_out: the agent "
+        "could not fill the need and reported it. superseded: a working step the agent replaced",
+    )
+    basket_id: str | None = Field(None, description="The basket that closed this request")
+    closed_reason: str | None = None
 
 
 class Approval(BaseModel):
@@ -242,7 +254,46 @@ class Order(BaseModel):
     policy: PolicyDecision
     agent_note: str | None = Field(None, description="The agent's stated reason for this choice")
     approvers: list[str] = Field(default_factory=list, description="Who may approve this order")
+    basket_id: str | None = Field(
+        None, description="Set when the order was placed together with others, as one decision"
+    )
+    basket_title: str | None = Field(None, description="What the basket is for, in a few words")
     approval: Approval | None = None
+
+
+class BasketItem(BaseModel):
+    request_id: str = Field(description="A request from request_options, e.g. PR-0001")
+    option_id: str = Field("opt-1", description="The option of that request to order")
+
+
+class LeftOutItem(BaseModel):
+    request_id: str = Field(description="A request of a need that is not in the basket")
+    reason: str | None = Field(
+        None, description="Why, in the buyer's terms. Defaults to what the gateway found"
+    )
+
+
+class LeftOut(BaseModel):
+    request_id: str
+    asked: str = Field(description="The need, in the buyer's words where given")
+    reason: str
+
+
+class Basket(BaseModel):
+    """Several orders decided as one: confirmed together, or held together for a human."""
+
+    id: str
+    title: str
+    status: Literal["confirmed", "pending_approval", "closed"]
+    status_reason: str
+    total: float = Field(description="EUR without VAT, over the orders that are still active")
+    total_with_tax: float
+    approvers: list[str]
+    order_by: datetime | None = Field(None, description="Earliest order cut-off in the basket")
+    orders: list[Order]
+    left_out: list[LeftOut] = Field(
+        default_factory=list, description="Needs of the list that could not be filled"
+    )
 
 
 class AuditEvent(BaseModel):

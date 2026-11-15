@@ -1,10 +1,13 @@
 """Agent registry: which token belongs to which agent, buyer and mandate.
 
-The registry is a JSON file (mandates.json) so the limits can be read and changed without
-touching code. In production this is the buyer's account configuration at the wholesaler.
+The registry is a JSON file so the limits can be read and changed without touching code.
+`mandates.json` in the repository holds the defaults; the copy in `data/` is the one in use,
+which the kitchen view edits, so the repository stays clean. In production this is the buyer's
+account configuration at the wholesaler.
 """
 
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -38,15 +41,25 @@ def get_agents() -> dict[str, AgentIdentity]:
     one must be seen by the other on its next call.
     """
     global _cache
-    modified = settings.aimo_agents_file.stat().st_mtime
+    path = _working_copy()
+    modified = path.stat().st_mtime
     if _cache is None or _cache[0] != modified:
-        _cache = (modified, load_agents(settings.aimo_agents_file))
+        _cache = (modified, load_agents(path))
     return _cache[1]
+
+
+def _working_copy() -> Path:
+    """The registry file in use, created from the repository's defaults on first run."""
+    path = settings.aimo_agents_file
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(settings.aimo_agents_defaults, path)
+    return path
 
 
 def update_mandate(agent_id: str, changes: dict[str, Any]) -> AgentIdentity | None:
     """Change fields of one agent's mandate in the registry file. None if the agent is unknown."""
-    path = settings.aimo_agents_file
+    path = _working_copy()
     records = _records.validate_json(path.read_bytes())
     record = next((r for r in records if r.agent_id == agent_id), None)
     if record is None:

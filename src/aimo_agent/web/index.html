@@ -47,7 +47,8 @@
            font-weight: 600; white-space: nowrap; background: var(--soft); color: var(--muted); }
   .ok, .confirmed, .pass, .best { background: var(--ok-bg); color: var(--ok); }
   .warn, .pending_approval, .needs_approval, .good, .expired { background: var(--warn-bg); color: var(--warn); }
-  .bad, .rejected, .denied, .deny, .none { background: var(--bad-bg); color: var(--bad); }
+  .bad, .rejected, .denied, .deny, .none, .left_out { background: var(--bad-bg); color: var(--bad); }
+  .superseded { background: var(--line); color: var(--muted); }
   .info, .better, .options { background: var(--accent-bg); color: var(--accent); }
   button, select, input { font: inherit; color: var(--text); background: var(--panel);
                           border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px; }
@@ -175,7 +176,8 @@ const pretty = (code) => code.replace(/_/g, " ").toLowerCase().split(" ").map((w
 
 const STATUS = { confirmed: "Confirmed", pending_approval: "Waiting for approval",
   rejected: "Rejected", denied: "Refused by mandate", expired: "Expired",
-  options: "Options ready", none: "Nothing orderable" };
+  options: "Options ready", none: "Nothing orderable", left_out: "Left out",
+  superseded: "Replaced" };
 const VERDICT = { auto_approve: ["ok", "Agent may order alone"],
   needs_approval: ["warn", "Needs human approval"], deny: ["bad", "Refused by mandate"] };
 const OUTCOME = { pass: "OK", needs_approval: "Needs approval", deny: "Refused" };
@@ -295,7 +297,7 @@ function optionCard(request, option, order, proof) {
   </div>`;
 }
 
-function renderRequest(request, order, proofs) {
+function renderRequest(request, order, proofs, orders = []) {
   if (!request) {
     $("request").innerHTML = '<div class="card empty">No request yet. Run a purchase on the left.</div>';
     return;
@@ -320,7 +322,10 @@ function renderRequest(request, order, proofs) {
         <td class="muted">${esc(e.reason)}</td></tr>`).join("")}</table></details>` : "";
   const outcome = order
     ? `<p style="margin:10px 0 0"><span class="badge ${order.status}">${esc(order.id)} · ${STATUS[order.status]}</span>
-        <span class="small"> ${esc(order.status_reason)}</span></p>`
+        <span class="small"> ${esc(order.status_reason)}</span></p>${order.basket_id
+        ? `<p class="small muted" style="margin:6px 0 0">Part of basket ${esc(order.basket_id)}, “${esc(order.basket_title)}”: ordered and decided together with ${orders.filter((o) => o.basket_id === order.basket_id).length - 1} other orders.</p>` : ""}`
+    : request.closed_as ? `<p style="margin:10px 0 0"><span class="badge ${request.closed_as}">${STATUS[request.closed_as]}</span>
+        <span class="small"> Closed when basket ${esc(request.basket_id)} was placed without it. ${esc(request.closed_reason || "")}</span></p>`
     : request.options.length ? "" : `<p style="margin:10px 0 0"><span class="badge none">Nothing was ordered</span>
         <span class="small"> No matching product can be delivered by the date. The reasons are listed below.</span></p>`;
   $("request").innerHTML = `<div class="card">
@@ -340,7 +345,7 @@ function renderLists(requests, orders, mandates) {
   const orderOf = (id) => orders.find((o) => o.request_id === id);
   $("requests").innerHTML = requests.map((r) => {
     const order = orderOf(r.id);
-    const status = order ? order.status : r.options.length ? "options" : "none";
+    const status = order ? order.status : r.closed_as || (r.options.length ? "options" : "none");
     return `<button class="pick ${r.id === selected ? "selected" : ""}" data-select="${esc(r.id)}">
       <span class="row"><b>${esc(r.id)}</b><span class="badge ${status}">${STATUS[status]}</span></span>
       <span class="small muted">${esc((r.need.text || r.need.query || "").slice(0, 78))}</span></button>`;
@@ -367,11 +372,21 @@ function renderLists(requests, orders, mandates) {
         <button class="primary" id="save-mandate">Save</button></div>`;
   }
 
-  const pending = orders.filter((o) => o.status === "pending_approval");
+  // Orders of one basket are decided together: one entry, one pair of buttons.
+  const pending = [];
+  for (const o of orders.filter((o) => o.status === "pending_approval").reverse()) {
+    const group = o.basket_id && pending.find((g) => g.basket_id === o.basket_id);
+    if (group) { group.items.push(o); group.total += o.option.total; }
+    else pending.push({ ...o, items: [o], total: o.option.total });
+  }
+  pending.reverse();
   $("approvals").innerHTML = pending.map((o) => `<div style="padding:8px 0;border-top:1px solid var(--line)">
-      <div class="row"><b>${esc(o.id)}</b><span class="grow"></span>
-        <b class="num">${eur(o.option.total)}</b></div>
-      <div class="small">${esc(o.option.title)}</div>
+      <div class="row"><b>${esc(o.basket_id || o.id)}</b><span class="grow"></span>
+        <b class="num">${eur(o.total)}</b></div>
+      ${o.basket_id ? `<div class="small"><b>${esc(o.basket_title)}</b> · ${o.items.length} orders, decided together</div>
+        <ul class="small" style="margin:4px 0 0;padding-left:18px">${o.items.map((i) =>
+          `<li>${esc(i.id)} · ${esc(i.option.title)} · ${eur(i.option.total)}</li>`).join("")}</ul>`
+        : `<div class="small">${esc(o.option.title)}</div>`}
       <div class="small muted" style="margin-top:4px">${esc(o.status_reason)}</div>
       <div class="actions">
         <select aria-label="Approver" data-approver="${esc(o.id)}">${(o.approvers.length ? o.approvers : ["Approver"])
@@ -415,7 +430,7 @@ async function refresh(force = false) {
     if (force || (state !== lastRender && !typing)) {
       lastRender = state;
       renderLists(requests, orders, mandates);
-      renderRequest(request, order, proofs);
+      renderRequest(request, order, proofs, orders);
       renderAudit(events);
     }
     $("chain").className = "badge " + (chain.intact ? "ok" : "bad");
@@ -443,7 +458,7 @@ document.addEventListener("click", async (event) => {
       if (fresh) tampered.clear();
       const results = await api(
         `/demo/scenarios/${encodeURIComponent(data.run)}?fresh=${fresh}`, { method: "POST" });
-      selected = results[results.length - 1].request_id;
+      selected = (results.find((r) => r.basket_id) || results[results.length - 1]).request_id;
     } else if (data.decide) {
       await api(`/v1/desk/orders/${encodeURIComponent(data.decide)}/decision`, {
         method: "POST", headers: { "Content-Type": "application/json" },

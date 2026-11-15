@@ -3,7 +3,7 @@ from datetime import date
 import pytest
 
 from aimo_agent.catalog import Catalog
-from aimo_agent.models import AgentIdentity, Need
+from aimo_agent.models import AgentIdentity, LeftOutItem, Need
 from aimo_agent.service import PurchasingService, ServiceError
 from aimo_agent.store import Store
 from tests.conftest import MONDAY, FakeAimo, make_product
@@ -226,6 +226,156 @@ async def test_the_mandate_can_let_the_agent_accept_alternatives_alone(
     assert request.options[0].policy.decision == "auto_approve"
 
 
+MENU = [
+    {"text": "Lactose-free milk for the soup.", "query": "milk", "free_from": ["lactose"]},
+    {"text": "Oat drink for the dessert.", "query": "oat drink"},
+]
+
+
+async def basket_of(
+    service: PurchasingService, agent: AgentIdentity, litres: float
+) -> list[tuple[str, str]]:
+    needs = [
+        Need.model_validate(n | {"quantity": litres, "unit": "L", "deliver_by": MONDAY})
+        for n in MENU
+    ]
+    requests = await service.create_requests(agent, needs)
+    return [(request.id, "opt-1") for request in requests]
+
+
+async def test_basket_within_the_mandate_is_confirmed_as_a_whole(
+    service: PurchasingService, hotel: AgentIdentity
+) -> None:
+    basket = await service.place_basket(
+        hotel, await basket_of(service, hotel, 100), "Dinner for 80", "Menu for the booking."
+    )
+
+    assert (basket.id, basket.status, basket.total) == ("BK-0001", "confirmed", 281.0)
+    assert [(o.status, o.basket_title) for o in basket.orders] == [
+        ("confirmed", "Dinner for 80"),
+        ("confirmed", "Dinner for 80"),
+    ]
+    assert service.get_basket(hotel, "BK-0001").status == "confirmed"
+
+
+async def test_basket_over_the_limit_is_held_whole_and_decided_once(
+    service: PurchasingService, hotel: AgentIdentity
+) -> None:
+    # 400 l of milk (404) is within the limit alone; with 400 l of oat drink (720) it is not.
+    basket = await service.place_basket(hotel, await basket_of(service, hotel, 400), "Banquet")
+
+    milk, oat = basket.orders
+    assert (basket.status, basket.total) == ("pending_approval", 1124.0)
+    assert (milk.status, oat.status) == ("pending_approval", "pending_approval")
+    # Each is within the limit on its own; the basket as a whole is not. Said once.
+    for order in (milk, oat):
+        outcomes = {rule.rule: rule.outcome for rule in order.policy.rules}
+        assert outcomes["spend_limit"] == "pass"
+        assert outcomes["basket_spend_limit"] == "needs_approval"
+    assert basket.status_reason == (
+        "Held for one human decision. Together the basket's 2 orders for Mon 16 Nov come to "
+        "1124.00 EUR, which exceeds the agent's limit of 1000.00 EUR per delivery day."
+    )
+    assert service.store.reserved_units() == {"100": 400, "200": 400}
+
+    await service.decide(milk.id, approver="Head chef", approved=True)  # one decision
+
+    decided = service.get_basket(hotel, basket.id)
+    assert decided.status == "confirmed"
+    assert {o.approval.approver for o in decided.orders if o.approval} == {"Head chef"}
+    assert event_types(service, order_id=oat.id)[-2:] == ["approval.granted", "order.confirmed"]
+
+
+async def test_rejecting_one_order_of_a_basket_rejects_all_of_it(
+    service: PurchasingService, hotel: AgentIdentity
+) -> None:
+    basket = await service.place_basket(hotel, await basket_of(service, hotel, 400), "Banquet")
+    await service.decide(basket.orders[1].id, approver="Head chef", approved=False)
+
+    assert [o.status for o in service.get_basket(hotel, basket.id).orders] == ["rejected"] * 2
+    assert service.store.reserved_units() == {}
+
+
+async def test_nothing_of_a_basket_is_ordered_when_one_offer_changed(
+    service: PurchasingService, hotel: AgentIdentity, aimo: FakeAimo
+) -> None:
+    items = await basket_of(service, hotel, 100)
+    aimo.offer("200", 2.40)  # the oat drink got dearer
+
+    with pytest.raises(ServiceError) as error:
+        await service.place_basket(hotel, items, "Dinner")
+
+    assert error.value.code == "offer_changed"
+    assert service.store.list_orders() == []
+
+
+async def test_basket_rejects_duplicates_and_requests_already_ordered(
+    service: PurchasingService, hotel: AgentIdentity
+) -> None:
+    items = await basket_of(service, hotel, 100)
+    with pytest.raises(ServiceError, match="once"):
+        await service.place_basket(hotel, [items[0], items[0]], "Twice")
+    await service.place_order(hotel, items[0][0], "opt-1")
+    with pytest.raises(ServiceError) as error:
+        await service.place_basket(hotel, items, "Dinner")
+    assert error.value.code == "already_ordered"
+
+
+async def test_one_item_that_needs_a_human_holds_the_whole_basket(
+    service: PurchasingService, hotel: AgentIdentity
+) -> None:
+    oat = Need.model_validate(
+        {"text": "Oat drink", "query": "oat drink", "quantity": 10, "deliver_by": MONDAY}
+    )
+    requests = await service.create_requests(hotel, [organic(), oat])
+    # Organic milk cannot arrive by Monday: the top option is regular milk, outside the preference.
+    assert requests[0].options[0].outside_preferences
+
+    basket = await service.place_basket(hotel, [(r.id, "opt-1") for r in requests], "Brunch")
+
+    _, drink = basket.orders
+    assert basket.status == "pending_approval"
+    assert drink.policy.decision == "auto_approve"
+    assert drink.status_reason == (
+        'Held with the rest of "Brunch", which needs a human\'s decision as a whole.'
+    )
+    assert basket.status_reason.startswith(
+        "Held for one human decision. 200 litres of organic lactose-free milk by Monday: "
+        "Outside the buyer's stated preferences"
+    )
+
+
+async def test_a_basket_approved_too_late_expires_whole(
+    service: PurchasingService, hotel: AgentIdentity, aimo: FakeAimo
+) -> None:
+    basket = await service.place_basket(hotel, await basket_of(service, hotel, 400), "Banquet")
+    aimo.offer("200", 2.40)  # the oat drink got dearer while the basket waited
+
+    await service.decide(basket.orders[0].id, approver="Head chef", approved=True)
+
+    decided = service.get_basket(hotel, basket.id)
+    assert [o.status for o in decided.orders] == ["expired", "expired"]
+    assert decided.status == "closed"
+    assert "Nothing in the basket was ordered." in decided.orders[0].status_reason
+    assert service.store.reserved_units() == {}
+
+
+async def test_items_of_one_basket_cannot_take_the_same_stock_twice(
+    service: PurchasingService, hotel: AgentIdentity
+) -> None:
+    # 51 units of 102 are in stock: enough for either need, not for both.
+    arla = {"product_id": "102", "quantity": 40, "unit": "L", "deliver_by": MONDAY}
+    needs = [Need.model_validate(arla | {"text": t}) for t in ("For the soup", "For the sauce")]
+    requests = await service.create_requests(hotel, needs)
+    assert all(r.options[0].lines[0].units == 40 for r in requests)
+
+    with pytest.raises(ServiceError) as error:
+        await service.place_basket(hotel, [(r.id, "opt-1") for r in requests], "Twice the milk")
+
+    assert error.value.code == "offer_changed"
+    assert service.store.list_orders() == []
+
+
 async def test_rejected_order_stays_rejected(
     service: PurchasingService, hotel: AgentIdentity
 ) -> None:
@@ -362,3 +512,40 @@ async def test_tampering_with_the_audit_log_is_detected(
     await service.create_request(hotel, milk(100))
     service.store._db.execute("UPDATE events SET summary = 'nothing happened' WHERE seq = 2")
     assert service.store.verify_chain() == (False, 1, 2)
+
+
+async def test_a_basket_reports_what_was_left_out_and_closes_replaced_requests(
+    service: PurchasingService, hotel: AgentIdentity
+) -> None:
+    def need(text: str, query: str, litres: float = 10) -> Need:
+        return Need(text=text, query=query, quantity=litres, unit="L", deliver_by=MONDAY)
+
+    earlier = await service.create_request(hotel, need("Coconut milk", "coconut"))
+    done = await service.create_request(hotel, milk(50))
+    await service.place_order(hotel, done.id, "opt-1")  # a commitment: what came before is settled
+
+    first_try = await service.create_request(hotel, need("Fish stock", "fish stock"))
+    second_try = await service.create_request(hotel, need("Fish stock", "fish stock"))
+    explored = await service.create_request(hotel, need("Oat drink", "oat drink"))
+    wanted = await service.create_request(hotel, milk(100))
+    assert not first_try.options and not second_try.options and explored.options
+
+    basket = await service.place_basket(
+        hotel, [(wanted.id, "opt-1")], "Soup", left_out=[LeftOutItem(request_id=second_try.id)]
+    )
+
+    assert [(g.request_id, g.asked, g.reason) for g in basket.left_out] == [
+        (second_try.id, "Fish stock", "Nothing that fits can be delivered by Mon 16 Nov.")
+    ]
+    assert service.get_basket(hotel, basket.id).left_out == basket.left_out
+    closed = {r.id: r.closed_as for r in service.store.list_requests()}
+    assert closed[first_try.id] == closed[explored.id] == "superseded"
+    assert closed[second_try.id] == "left_out"
+    assert closed[earlier.id] is None  # before the previous order: not this list's business
+    with pytest.raises(ServiceError) as error:
+        await service.place_order(hotel, explored.id, "opt-1")
+    assert error.value.code == "closed"
+    with pytest.raises(ServiceError, match="either in the basket or left out"):
+        await service.place_basket(
+            hotel, [(earlier.id, "opt-1")], "x", left_out=[LeftOutItem(request_id=earlier.id)]
+        )

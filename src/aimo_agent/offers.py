@@ -75,14 +75,24 @@ def evaluate_offer(
     if unit == "SALES_UNIT":
         content = 1.0
     else:
-        if price.comparison_unit != unit or offer.comparison_price is None:
+        # The price list's own ratio first; failing that, the net content the product data
+        # declares (a 1 kg bag of sugar is priced per bag only, but its data says 1000 g).
+        measured = None
+        if price.comparison_unit == unit and offer.comparison_price is not None:
+            measured = content_per_sales_unit(offer.unit_price, offer.comparison_price)
+            offer.content_source = "price_list" if measured else None
+        if measured is None:
+            measured = product.declared_content(unit)
+            offer.content_source = "product_data" if measured else None
+        if measured is None:
             basis = (
                 f"per {price.comparison_unit}" if price.comparison_unit else "per sales unit only"
             )
-            return stop("unit_mismatch", f"Priced {basis}, so it cannot be sized in {label}.")
-        measured = content_per_sales_unit(offer.unit_price, offer.comparison_price)
-        if measured is None:
-            return stop("unit_mismatch", f"Content per sales unit is unknown in {label}.")
+            return stop(
+                "unit_mismatch",
+                f"Priced {basis} and no net content in {label} is declared, so it cannot be "
+                f"sized in {label}.",
+            )
         content = measured
     offer.content_per_unit = content
 
@@ -138,17 +148,20 @@ def evaluate_offer(
 
 
 def _ranking(need: Need) -> Callable[[Offer], tuple[float, ...]]:
-    def price_per_content(offer: Offer) -> float:
-        return (offer.unit_price or 0.0) / (offer.content_per_unit or 1.0)
+    def cost(offer: Offer) -> float:
+        # What the buyer pays for the quantity asked, in whole packs: a cheaper price per kg in
+        # a pack that overshoots the need is not cheaper for the buyer.
+        units = offer.units_needed if offer.units_needed is not None else math.inf
+        return units * (offer.unit_price or 0.0)
 
     if need.prefer == "reliability":
-        return lambda o: (-(o.delivery_reliability or 0.0), price_per_content(o))
+        return lambda o: (-(o.delivery_reliability or 0.0), cost(o))
     if need.prefer == "carbon":
         return lambda o: (
             o.carbon_kg_co2e_per_kg if o.carbon_kg_co2e_per_kg is not None else math.inf,
-            price_per_content(o),
+            cost(o),
         )
-    return lambda o: (price_per_content(o),)
+    return lambda o: (cost(o),)
 
 
 def _fill(offers: list[Offer], need: Need) -> list[tuple[Offer, float]]:
@@ -201,6 +214,11 @@ def _option(parts: list[tuple[Offer, float]], need: Need) -> Option:
     if len(lines) > 1:
         trade_offs.append(f"Split across {len(lines)} products.")
     for offer, _ in parts:
+        if offer.content_source == "product_data":
+            trade_offs.append(
+                f"{offer.name}: {offer.content_per_unit:g} {unit} per {offer.sales_unit} as the "
+                f"product data declares it; the price list gives no price per {unit}."
+            )
         if offer.unmet_preferences:
             trade_offs.append(
                 f"{offer.name} is outside the stated preferences: "
@@ -266,7 +284,9 @@ def build_options(offers: list[Offer], need: Need) -> list[Option]:
     """Rank concrete ways to fulfil the need, from exactly-as-asked down to compromises.
 
     The requested product always comes before substitutes; within each group offers follow the
-    buyer's preference (price by default).
+    buyer's preference (price by default). Price is what the buyer pays for the quantity asked,
+    in whole packs. A cheaper option that overshoots the quantity still ranks first: whether
+    that needs a human is the mandate's call, not the ranking's.
     """
     rank = _ranking(need)
 
